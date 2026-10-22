@@ -15,6 +15,7 @@ def apply(kernel):
     if not head.startswith(COMMIT):
         raise ValueError('Expected E5 kernel ' + COMMIT)
     runpy.run_path(str(SHARED.parent / 'common/display.py'))['apply'](kernel)
+    runpy.run_path(str(SHARED.parent / 'common/usb-ncm.py'))['apply'](kernel)
     runpy.run_path(str(SHARED.parent / 'common/power.py'))['apply'](kernel)
     runpy.run_path(str(SHARED.parent / 'common/charger-capabilities.py'))['apply'](kernel)
     runpy.run_path(str(SHARED.parent / 'common/emmc.py'))['apply'](kernel)
