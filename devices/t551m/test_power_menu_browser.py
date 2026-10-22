@@ -17,7 +17,7 @@ def main():
     args = parser.parse_args()
     fixtures = json.loads(args.fixtures.read_text(encoding='utf-8'))
     state = fixtures['/api/status'];state['screen']['idle'] = 0
-    posts = [];response = {'ok':False};errors = []
+    posts = [];reads = [];response = {'ok':False};errors = []
     with tempfile.TemporaryDirectory(prefix='screen-power-nav-') as directory:
         root = Path(directory)
         sources = runpy.run_path(str(Path(__file__).with_name('infoscreen')/'stage.py'))['sources']()
@@ -41,7 +41,9 @@ def main():
                         body=route.request.post_data_json;posts.append((path,body))
                         if path=='/api/backlight':state['screen']['awake']=body.get('level',0)>0
                         route.fulfill(json=response if path=='/api/settings/system' else {'ok':True})
-                    else:route.fulfill(json=fixtures.get(path,{}))
+                    else:
+                        reads.append(path)
+                        route.fulfill(json=fixtures.get(path,{}))
                 page.route('**/api/**',api)
                 page.goto(f'http://127.0.0.1:{server.server_port}/')
                 page.wait_for_function('typeof last!=="undefined" && last!==null')
@@ -140,6 +142,30 @@ def main():
                 page.keyboard.press('Enter');page.keyboard.press('Escape')
                 assert page.locator('[data-confirm]').is_disabled()
                 assert len([p for p in posts if p[0]=='/api/settings/system'])==before+1
+                # System settings share the same accepted-power contract as
+                # the menu. No readback/toast failure or repeated submission
+                # is allowed after the backend has accepted the request.
+                for language in ('zh','en'):
+                    for action in ('reboot','poweroff','android_once'):
+                        page.reload();page.wait_for_function('last!==null')
+                        page.wait_for_timeout(100)
+                        response.clear();response.update(ok=True,power_action=action)
+                        page.evaluate('''([language,action])=>{
+                            lang=language;
+                            st=[{view:'cat',cat:{id:'system',label:'System'},items:[{id:action,type:'action',confirm:true,label:action}]}];
+                            stRender();
+                        }''',[language,action])
+                        before=len([p for p in posts if p[0]=='/api/settings/system'])
+                        read_before=reads.count('/api/settings/system')
+                        page.evaluate('action=>stClick("item:"+action)',action)
+                        assert len([p for p in posts if p[0]=='/api/settings/system'])==before
+                        page.evaluate('action=>stClick("item:"+action)',action)
+                        page.wait_for_timeout(150)
+                        assert page.evaluate('stTop().saving')
+                        assert reads.count('/api/settings/system')==read_before
+                        assert len([p for p in posts if p[0]=='/api/settings/system'])==before+1
+                        page.evaluate('action=>stClick("item:"+action)',action)
+                        assert len([p for p in posts if p[0]=='/api/settings/system'])==before+1
                 assert not errors,errors
                 browser.close()
                 print(json.dumps({'locked_touch_on':'PASS','locked_touch_off':'PASS','iframe_focus':'PASS',

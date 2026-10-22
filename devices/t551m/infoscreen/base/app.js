@@ -1453,6 +1453,13 @@ async function stPost(v, body) {
 	let r = await fetch('/api/settings/' + v.cat.id, {
 		method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
 	}).then((r) => r.json()).catch(() => null);
+	if (r?.ok && v.cat.id == 'system' && r.power_action === body.id &&
+		['reboot', 'poweroff', 'android_once'].includes(body.id)) {
+		// Keep the confirmation guard, and do not refresh a departing backend.
+		done(false);
+		toast(t('at_running'));
+		return r;
+	}
 	if (r?.pending && r.job) {
 		const job=r.job, slot=r.slot, service=r.service||'lock', until=Date.now()+245000;
 		try {
@@ -1604,8 +1611,8 @@ async function stClick(key, el) {
 			stRender();
 		} else if (it.type == 'action') {
 			if (it.confirm && !stConfirm(key, el)) return;
-			await stPost(v, { id: it.id });
-			stLoadCat(v);
+			const result = await stPost(v, { id: it.id });
+			if (!result?.power_action) stLoadCat(v);
 		} else if (it.type == 'image') {
 			picOpen(it.src, lbl(it.caption), () => el?.focus());
 		} else if (it.type == 'choice' || it.type == 'number' || it.type == 'multi') {

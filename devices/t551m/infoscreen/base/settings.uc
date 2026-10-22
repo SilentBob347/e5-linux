@@ -382,6 +382,17 @@ const traffic_records = {
 	}
 };
 
+// Power actions do not have a readable post-change setting. Return acceptance
+// before the API tries to read the category while services are shutting down.
+function queue_power(action) {
+	let command = action == 'poweroff' ? 'poweroff' : 'reboot';
+	if (ctx.run(`command -v ${command} >/dev/null 2>&1`) != 0)
+		return 'Power command unavailable';
+	if (ctx.run(`(sleep 2; ${command}) </dev/null >/dev/null 2>&1 &`) != 0)
+		return 'Cannot schedule power operation';
+	return { power_action: action };
+}
+
 const system_cat = {
 	id: 'system', label: L('系统', 'System'),
 	items: function() {
@@ -460,12 +471,11 @@ const system_cat = {
 		if (id == 'update_apply' || id == 'update_rollback') {
 			return UPDATES.start(id == 'update_apply' ? 'apply' : 'rollback');
 		}
-		if (id == 'reboot') { ctx.run('(sleep 2; reboot) >/dev/null 2>&1 &'); return null; }
-		if (id == 'poweroff') { ctx.run('(sleep 2; poweroff) >/dev/null 2>&1 &'); return null; }
+		if (id == 'reboot' || id == 'poweroff') return queue_power(id);
 		// (booting Debian is e5-os on the command line: e5-os debian --once)
 		if (id == 'android_once') {
             if (ctx.run('e5-next-boot android >/dev/null 2>&1') != 0) return 'Cannot select Android';
-            ctx.run('(sleep 2; reboot) >/dev/null 2>&1 &');return null;
+            return queue_power(id);
         }
 		return 'no such setting';
 	}

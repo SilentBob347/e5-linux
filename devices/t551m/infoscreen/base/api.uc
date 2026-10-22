@@ -1582,8 +1582,13 @@ global.handle_request = function(env) {
 				return reply_json(200, { id: c.id, label: c.label, items: settings_items(c) });
 			let b = read_body(env);
 			let err = c.set(b.id, b.value, b.slot);
+			if (c.id == 'system' && type(err) == 'object' &&
+			    err.power_action == b.id && index(['reboot','poweroff','android_once'], b.id) >= 0)
+				return reply_json(200, { ok: true, power_action: b.id });
 			if (type(err) == 'object' && err.job)
 				return reply_json(200,{ok:true,pending:true,job:err.job,slot:err.slot,service:err.service});
+			if (err)
+				return reply_json(400, { ok: false, error: err });
 			let item = null;
 			for (let i in settings_items(c))
 				if (i.id == b.id) item = i;
