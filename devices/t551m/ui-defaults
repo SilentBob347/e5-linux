@@ -14,6 +14,8 @@ done
 python3 /opt/e5/t551m-ui-cleanup
 # Independent nr2 terminal and nr6/nr7 collector workers; MM owns network/SMS.
 /etc/init.d/t551m-at enable
+/etc/init.d/e5-mm-state enable
+/etc/init.d/e5-mm-state start
 /etc/init.d/t551m-screen-power enable
 /usr/libexec/rpcd/t551m-screen setup
 /etc/init.d/unisoc-modem-ui enable

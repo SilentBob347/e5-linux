@@ -9,7 +9,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 repo = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(repo / 'openwrt/overlay/usr/lib/e5'))
+sys.path.insert(0, str(repo / 'openwrt/tests/reference'))
 from e5_call_events import CallEvents
 import e5_power_events
 

@@ -83,11 +83,17 @@ class Metrics(unittest.TestCase):
             spec = importlib.util.spec_from_file_location('worker_fixture', helper)
             worker = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(worker)
+            gate = root / 'gate'
+            os.mkfifo(gate)
+            gatefd = os.open(gate, os.O_RDWR | os.O_NONBLOCK)
+            self.addCleanup(os.close, gatefd)
             iw = root / 'iw'
-            iw.write_text('#!/usr/bin/python3\nimport sys,time\n'
-                          'time.sleep(0.2)\n'
-                          'print("Station " + sys.argv[-1] + "\\n\\tsignal: -54 dBm\\n\\ttx bitrate: 433.3 MBit/s\\n\\trx bitrate: 86.7 MBit/s")\n'
-                          'open(' + repr(str(root / 'queries')) + ',"a").write("query\\n")\n')
+            # Synchronize the overlap explicitly. Python interpreter startup
+            # under emulation must not consume the real 300ms query budget.
+            import shlex
+            iw.write_text('#!/bin/sh\nread -r release < ' + shlex.quote(str(gate)) + '\n'
+                          'printf "Station %s\\n\\tsignal: -54 dBm\\n\\ttx bitrate: 433.3 MBit/s\\n\\trx bitrate: 86.7 MBit/s\\n" "$5"\n'
+                          'echo query >> ' + shlex.quote(str(root / 'queries')) + '\n')
             iw.chmod(0o755)
             row = [MAC, '', '', '', '']
             children = []
@@ -101,6 +107,8 @@ class Metrics(unittest.TestCase):
                 self.assertEqual(worker.fill([row], 'lo'), [row])
                 self.assertEqual(worker.fill([row], 'lo'), [row])
                 self.assertLess(time.monotonic() - start, 0.15)
+                self.assertEqual(len(children), 1)
+                os.write(gatefd, b'continue\n')
                 deadline = time.monotonic() + 3
                 while not list(cache.glob('*.json')) and time.monotonic() < deadline:
                     time.sleep(0.02)
@@ -110,18 +118,22 @@ class Metrics(unittest.TestCase):
             self.assertEqual((root / 'queries').read_text(), 'query\n')
 
     def test_actual_station_dump_parser(self):
-        import subprocess
-        text = FILE.with_name('dashboard-info').read_text()
-        function = text[text.index('station_rows() {'):text.index('\nW_CN=null;')]
-        dump = ('Station ' + MAC + ' (on wlan0)\n\tsignal: 0 dBm\n'
-                '\ttx bitrate: 433.3 MBit/s VHT-MCS 9\n'
-                'Station 00:11:22:33:44:66 (on wlan0)\n\tsignal: -61 dBm\n'
-                '\trx bitrate: 86.7 MBit/s\n\tconnected time: 123 seconds\n'
-                'Station invalid\n\tsignal: -30 dBm\n')
-        result = subprocess.run(['busybox', 'sh', '-c', function + '\nstation_rows'],
-                                input=dump, text=True, capture_output=True, check=True)
-        self.assertEqual(result.stdout.splitlines(), [MAC + '||433.3 Mbit/s||',
-                         '00:11:22:33:44:66|-61||86.7 Mbit/s|2 min'])
+        import sys
+        sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'openwrt/tests'))
+        from native_dashboard_fixture import Snapshot
+        with tempfile.TemporaryDirectory() as td:
+            snap=Snapshot(Path(td))
+            snap.stations=[
+                {'mac':MAC,'sta_info':{'signal':0,'tx_bitrate':{'bitrate':4333}}},
+                {'mac':'00:11:22:33:44:66','sta_info':{'signal':-61,'rx_bitrate':{'bitrate':867},'connected_time':123}},
+                {'mac':'invalid','sta_info':{'signal':-30}}]
+            result=snap.run()['wifi']
+            self.assertEqual(result['clients_n'],2)
+            self.assertIsNone(result['clients'][0]['signal'])
+            self.assertEqual(result['clients'][0]['tx'],'433.3 Mbit/s')
+            self.assertEqual(result['clients'][1]['signal'],-61)
+            self.assertEqual(result['clients'][1]['rx'],'86.7 Mbit/s')
+            self.assertEqual(result['clients'][1]['conn'],'2 min')
 
 
 if __name__ == '__main__':

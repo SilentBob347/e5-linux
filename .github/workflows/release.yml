@@ -102,7 +102,7 @@ jobs:
       - name: Install host tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y lz4 e2fsprogs binutils python3 qemu-user-static binfmt-support
+          sudo apt-get install -y lz4 e2fsprogs binutils python3 qemu-user-static binfmt-support gcc pkg-config libglib2.0-dev libjson-c5 python3-gi dbus-daemon
           # The checksum-pinned OpenWrt SDK is x86_64; the runner is ARM64.
           sudo update-binfmts --enable qemu-x86_64
       - name: Restore and verify bootstrap inputs
@@ -137,6 +137,7 @@ jobs:
           python3 openwrt/tests/block-probe.py
           E5_TEST_IMAGE="e5-openwrt-base:$E5_WRT_VER" python3 openwrt/tests/gpt-plan.py
           python3 openwrt/tests/voice-audio.py
+          E5_TEST_IMAGE="e5-openwrt-base:$E5_WRT_VER" python3 devices/t551m/test_screen_metadata.py -v
           python3 openwrt/tests/dual-sms.py
           python3 openwrt/tests/dual-sms-send.py
           python3 openwrt/tests/sim-probe.py
@@ -168,12 +169,18 @@ jobs:
           path: |
             out/openwrt/*.apk
             out/openwrt/e5-modemmanager-build.json
-          key: patched-apk-${{ runner.os }}-${{ runner.arch }}-${{ env.E5_WRT_VER }}-${{ hashFiles('tools/openwrt-package-state.py', 'openwrt/tests/voice-identity.py', 'openwrt/tests/sim-power.py', 'openwrt/build-modemmanager.sh', 'openwrt/build-bluez.sh', 'openwrt/patches/**', 'rootfs/deb-patches/modemmanager-*.patch', 'rootfs/deb-patches/bluez-*.patch') }}
+            out/native-screen/
+          key: patched-apk-${{ runner.os }}-${{ runner.arch }}-${{ env.E5_WRT_VER }}-${{ hashFiles('devices/common/build-screen-native.py', 'devices/t551m/infoscreen/native/*.c', 'devices/t551m/infoscreen/native/*.h', 'devices/t551m/infoscreen/native/*.py', 'devices/t551m/test_screen_native.py', 'devices/t551m/test_screen_runtime.py', 'devices/t551m/test_screen_sanitizer.py', 'tools/build-layout.json', 'tools/openwrt-package-state.py', 'openwrt/tests/voice-identity.py', 'openwrt/tests/sim-power.py', 'openwrt/build-modemmanager.sh', 'openwrt/build-bluez.sh', 'openwrt/patches/**', 'rootfs/deb-patches/modemmanager-*.patch', 'rootfs/deb-patches/bluez-*.patch') }}
       - name: Compile patched ModemManager and BlueZ
         if: steps.packages.outputs.cache-hit != 'true'
         run: |
           bash openwrt/build-modemmanager.sh
           bash openwrt/build-bluez.sh
+          # Reuse its target SDK before the ephemeral runner removes it.
+          python3 devices/common/build-screen-native.py
+          python3 devices/t551m/test_screen_native.py
+          python3 devices/t551m/test_screen_runtime.py -v
+          python3 devices/t551m/test_screen_sanitizer.py
           # This volume belongs to this ephemeral runner. Free it before image assembly.
           docker volume rm e5-openwrt-src
       - name: Save patched packages before image assembly
@@ -183,6 +190,7 @@ jobs:
           path: |
             out/openwrt/*.apk
             out/openwrt/e5-modemmanager-build.json
+            out/native-screen/
           key: ${{ steps.packages.outputs.cache-primary-key }}
       - name: Cache guarded block-mount APK
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4

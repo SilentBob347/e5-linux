@@ -17,4 +17,12 @@ start() {
 		mount -t configfs configfs /sys/kernel/config 2>/dev/null
 	/opt/e5/gadget-guard.sh 2>&1 | logger -t e5-hw
 	/opt/e5/regdb-load.sh 2>&1 | logger -t e5-hw
+	# Other SoCs must never receive UMS9620 MMIO writes. Its module also checks
+	# the live DT and restores only its own added bits on suspend/unload.
+	if tr '\000' '\n' < /proc/device-tree/compatible | grep -qx sprd,ums9620; then
+		modprobe ums9620_lpintc || {
+			logger -t e5-hw 'UMS9620 wake interrupt routing module failed'
+			return 1
+		}
+	fi
 }

@@ -509,7 +509,12 @@ function pageRead(path, index, type = 'json') {
 	let failed = false;
 	const request = fetch(path, { cache: 'no-store', signal: controller.signal }).then(async response => {
 		if (!response.ok) throw new Error('HTTP ' + response.status);
-		return type == 'text' ? await response.text() : await response.json();
+		if (type == 'text') return await response.text();
+		const value = await response.json();
+		// Some uhttpd handlers return an error envelope with HTTP 200. Treat it
+		// as a failed read so the page shows its retry message, not empty data.
+		if (value?.error && Object.keys(value).length === 1) throw new Error(String(value.error));
+		return value;
 	}).catch(error => { failed = true; throw error; }).finally(() => {
 		clearTimeout(timer); pageRequests.delete(key); done(failed);
 	});
@@ -745,10 +750,25 @@ function keyLock(power, star) {
 
 /* ---------- navigation ---------- */
 
+let pageTransitionTimer;
 function showPage(n) {
+	const previous = page;
 	page = (n + pages.length) % pages.length;
-	pages.forEach((node, index) => node.classList.toggle('is-current', index == page));
-	$('pages').style.transform = `translateX(${-100 * T551M.position(page)}%)`;
+	clearTimeout(pageTransitionTimer);
+	pages.forEach((node, index) => {
+		node.classList.remove('is-outgoing', 'is-entering');
+		node.classList.toggle('is-current', index == page);
+	});
+	if (previous !== page) {
+		// Two viewport-sized layers move together; never rasterize the full
+		// multi-page strip or blend text from different pages.
+		$('pages').style.setProperty('--page-direction', T551M.position(page) > T551M.position(previous) ? 1 : -1);
+		pages[previous].classList.add('is-outgoing');
+		pages[page].classList.add('is-entering');
+		pageTransitionTimer = setTimeout(() => {
+			pages.forEach(node => node.classList.remove('is-outgoing', 'is-entering'));
+		}, 260);
+	}
 	$('dots').innerHTML = pages.map((_, i) => `<i class="${i == page ? 'on' : ''}"></i>`).join('');
 	$('foot-title').textContent = t(pages[page].dataset.title);
 	if (document.activeElement && document.activeElement.blur) document.activeElement.blur();

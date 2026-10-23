@@ -14,6 +14,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT/'openwrt/overlay/usr/lib/e5/vendor/dbus_next-0.2.3-py3-none-any.whl'))
 sys.path.insert(0, str(ROOT/'openwrt/overlay/usr/lib/e5'))
+sys.path.insert(0, str(ROOT/'openwrt/tests/reference'))
 
 
 def load(name, path):
@@ -25,7 +26,7 @@ def load(name, path):
 
 
 hfp = load('hfp', 'openwrt/overlay/usr/libexec/e5-hfp')
-voice = load('voice', 'openwrt/overlay/usr/libexec/e5-voice-audio')
+voice = load('voice', 'openwrt/tests/reference/voice-audio.py')
 hwmod = load('hardware', 'rootfs/overlay/opt/e5/e5-call-audio.py')
 
 

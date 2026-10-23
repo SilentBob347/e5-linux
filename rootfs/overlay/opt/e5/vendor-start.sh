@@ -24,7 +24,10 @@ android_import_perms "$A" dev/__properties__ || { echo "Cannot repair imported A
 echo "stage=dev-nodes"
 mkdir -p /dev/block/by-name /dev/socket
 for u in /sys/class/block/mmcblk0p*/uevent; do
-  d=$(basename "$(dirname "$u")"); n=$(sed -n 's/^PARTNAME=//p' "$u")
+  [ -r "$u" ] || continue
+  d=${u%/uevent}; d=${d##*/}
+  n=
+  while IFS='=' read -r k v; do [ "$k" != PARTNAME ] || n=$v; done < "$u"
   ln -sfn "/dev/$d" "/dev/block/$d"
   [ -n "$n" ] && ln -sfn "/dev/$d" "/dev/block/by-name/$n"
 done
@@ -59,7 +62,6 @@ if [ ! -S /dev/socket/logdw ]; then
   else
     nohup python3 /opt/e5/logdw.py /dev/socket/logdw >> /var/log/e5-android-log.txt 2>&1 &
   fi
-  sleep 1
 fi
 
 echo "stage=mounts"
@@ -98,6 +100,14 @@ fi
 chmod 0666 /sys/devices/platform/soc/*/*sipa-dele*/sipa_dele_reset 2>/dev/null || true
 mountpoint -q "$A/proc/cmdline" || mount --bind /run/e5-cmdline.android "$A/proc/cmdline"
 
+# e5-log-socket-ready: chroot preparation overlaps logdw startup. Wait instead
+# of sleeping one second before doing the remaining setup.
+i=0
+until [ -S /dev/socket/logdw ]; do
+    i=$((i + 1))
+    [ "$i" -lt 100 ] || { echo "Android log socket unavailable" >&2; exit 4; }
+    /opt/e5/bin/busybox usleep 10000
+done
 echo "stage=exec"
 modem_exe=/vendor/bin/modem_control
 if [ -x /opt/e5/e5-modem-coldboot ]; then

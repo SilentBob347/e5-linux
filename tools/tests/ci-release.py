@@ -3,6 +3,7 @@
 import importlib.util
 import io
 import json
+import runpy
 from pathlib import Path
 import struct
 import tarfile
@@ -23,6 +24,21 @@ def module(name):
 
 inputs = module('ci-inputs')
 release = module('ci-release')
+
+
+class ScreenNativeCI(unittest.TestCase):
+    def test_sdk_is_used_before_ephemeral_cleanup_and_artifacts_cached(self):
+        workflow=(TOP/'.github/workflows/release.yml').read_text(encoding='utf-8')
+        self.assertLess(workflow.index('python3 devices/common/build-screen-native.py'),
+                        workflow.index('docker volume rm e5-openwrt-src'))
+        self.assertEqual(workflow.count('            out/native-screen/'),2)
+        self.assertLess(workflow.index('python3 devices/t551m/test_screen_runtime.py -v'),
+                        workflow.index('docker volume rm e5-openwrt-src'))
+        self.assertIn("'devices/t551m/infoscreen/native/*.c'",workflow)
+        self.assertIn("'devices/t551m/infoscreen/native/*.h'",workflow)
+        runtime=(TOP/'openwrt/overlay/etc/init.d/e5-voice-audio').read_text()
+        self.assertNotIn('python3',runtime)
+        self.assertIn('/usr/libexec/e5-voice-native',runtime)
 
 
 class Bootstrap(unittest.TestCase):
@@ -84,6 +100,11 @@ class RootAudit(unittest.TestCase):
                 target = top / 'openwrt' / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes((TOP / 'openwrt' / name).read_bytes())
+            # The release audit also verifies the current SAE source marker.
+            # Carry its real source inputs into this otherwise private tree.
+            wifi = runpy.run_path(str(TOP / 'openwrt/wifi-sae-state.py'))
+            for name in wifi['SOURCES']:
+                (top / 'openwrt' / name).write_bytes((TOP / 'openwrt' / name).read_bytes())
             for name in ('vendor-start.sh', 'e5-modem-coldboot'):
                 (top / 'rootfs/overlay/opt/e5' / name).write_bytes(b'startup fixture')
                 files = {**files, 'opt/e5/' + name: b'startup fixture'}
@@ -98,10 +119,14 @@ class RootAudit(unittest.TestCase):
             return info
 
     def files(self):
+        wifi = runpy.run_path(str(TOP / 'openwrt/wifi-sae-state.py'))
         return {'usr/share/e5-infoscreen/VERSION': b'1.6.3',
                 'etc/e5-infoscreen/plugins/phone/manifest.json': json.dumps({'version': '1.4'}).encode(),
                 'etc/e5/build-time': b'123', 'lib/modules/6.18-e5/modem/sipc_wwan.ko': b'module',
                 'etc/e5/block-mount.build-id': (release.block_build_id() + '\n').encode(),
+                'etc/e5/wifi-sae.build-id': (wifi['build_id']() + '\n').encode(),
+                'lib/netifd/hostapd-unisoc.sh': (TOP / 'openwrt/hostapd-unisoc.sh').read_bytes(),
+                'usr/share/ucode/wifi/unisoc-sae.uc': (TOP / 'openwrt/hostapd-unisoc.uc').read_bytes(),
                 'sbin/block': b'block', 'lib/libblkid-tiny.so': b'library', 'etc/init.d/fstab': b'init'}
 
     def test_same_release_and_epoch_pass(self):
@@ -132,6 +157,16 @@ class RootAudit(unittest.TestCase):
         files = self.files()
         del files['sbin/block']
         with self.assertRaisesRegex(ValueError, 'block-mount payload missing'):
+            self.audit(files)
+
+    def test_stale_wifi_source_marker_rejected(self):
+        files = self.files(); files['etc/e5/wifi-sae.build-id'] = b'old-sae\n'
+        with self.assertRaisesRegex(ValueError, 'source mismatch'):
+            self.audit(files)
+
+    def test_missing_wifi_runtime_rejected(self):
+        files = self.files(); del files['usr/share/ucode/wifi/unisoc-sae.uc']
+        with self.assertRaisesRegex(ValueError, 'root source mismatch: missing=.*unisoc-sae'):
             self.audit(files)
 
 

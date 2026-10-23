@@ -16,8 +16,12 @@ with tempfile.TemporaryDirectory() as tmp:
         index = (root/'usr/share/e5-infoscreen/www/index.html').read_text()
         assert index.count('src="transport.js"') == 1
         assert index.index('transport.js') < index.index('calls.js')
-        for name in ('e5_call_events.py', 'e5_screen_rpc.py', 'e5_power_events.py'):
-            assert (root/'usr/lib/e5'/name).read_bytes() == (repo/'openwrt/overlay/usr/lib/e5'/name).read_bytes().replace(b'\r\n',b'\n')
+        for name in ('t551m-screen-power','t551m-sim-status','e5-voice-native'):
+            elf=(root/'usr/libexec'/name).read_bytes()
+            assert elf[:6]==b'\x7fELF\x02\x01' and int.from_bytes(elf[18:20],'little')==183
+        assert (root/'usr/share/e5/voice-routes.json').is_file()
+        for service in ('t551m-screen-power','t551m-sim-status','e5-voice-audio'):
+            assert b'python3' not in (root/'etc/init.d'/service).read_bytes()
         for name in ('calls.js', 'transport.js'):
             assert (root/'usr/share/e5-infoscreen/www'/name).read_bytes() == (repo/'devices/t551m/infoscreen'/name).read_bytes().replace(b'\r\n',b'\n')
         assert b'T551MTransport' in (root/'usr/share/e5-infoscreen/www/sdk/e5.js').read_bytes()

@@ -3,7 +3,7 @@ import importlib.util
 from pathlib import Path
 import unittest
 
-spec=importlib.util.spec_from_file_location('sims',Path(__file__).with_name('infoscreen')/'sim-status.py')
+spec=importlib.util.spec_from_file_location('sims',Path(__file__).with_name('tests') / 'reference'/'sim-status.py')
 sims=importlib.util.module_from_spec(spec);spec.loader.exec_module(sims)
 
 class SimsTest(unittest.TestCase):

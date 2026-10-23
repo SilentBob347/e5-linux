@@ -138,6 +138,7 @@ def main():
         raise SystemExit('Expected linux-lts-e5 commit ' + KERNEL_COMMIT)
     runpy.run_path(str(Path(__file__).resolve().parents[1] / 'common/display.py'))['apply'](k)
     runpy.run_path(str(Path(__file__).resolve().parents[1] / 'common/usb-ncm.py'))['apply'](k)
+    runpy.run_path(str(Path(__file__).resolve().parents[1] / 'common/boot-optimization.py'))['apply'](k)
     runpy.run_path(str(Path(__file__).resolve().parents[1] / 'common/power.py'))['apply'](k)
     runpy.run_path(str(Path(__file__).resolve().parents[1] / 'common/wcn-firmware.py'))['apply'](k)
     runpy.run_path(str(Path(__file__).resolve().parents[1] / 'common/charger-capabilities.py'))['apply'](k)

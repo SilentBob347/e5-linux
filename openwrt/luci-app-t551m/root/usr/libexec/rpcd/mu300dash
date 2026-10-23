@@ -33,11 +33,7 @@ AT=${MU300_AT:-/usr/libexec/unisoc-modem/at}
 DIR=${MU300_DASH_DIR:-/tmp/unisoc-modem}
 CELL=$DIR/cell.json
 SIGF=$DIR/sig.json
-COLLECT_LCK=$DIR/collect.lck
-FAST_LCK=$DIR/fast.lck
 HIST=$DIR/at-history
-TTL=${MU300_DASH_TTL:-5}          # full tier: neighbours/QoS/operator
-TTL_FAST=${MU300_DASH_TTL_FAST:-1} # serving tier; refreshed only while a view requests it
 MU300_AT_LOCK_WAIT=12
 export MU300_AT_LOCK_WAIT
 
@@ -63,83 +59,25 @@ if [ "${1:-}" = call ]; then
             DIR=$DIR/sim$selected
             export MU300_DASH_DIR=$DIR
             CELL=$DIR/cell.json; SIGF=$DIR/sig.json
-            COLLECT_LCK=$DIR/collect.lck; FAST_LCK=$DIR/fast.lck; HIST=$DIR/at-history
+            HIST=$DIR/at-history
             mkdir -p "$DIR"
             ;;
     esac
 fi
 esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr -d '\r'; }
 now() { date +%s; }
-collecting() {
-    _p=$(cat "$COLLECT_LCK/pid" 2>/dev/null)
-    [ -n "$_p" ] && [ -d "/proc/$_p" ] &&
-        tr '\0' ' ' < "/proc/$_p/cmdline" 2>/dev/null | grep -q '/unisoc-modem/cell'
-}
-fast_busy() {
-    _p=$(cat "$FAST_LCK/pid" 2>/dev/null)
-    [ -n "$_p" ] && [ -d "/proc/$_p" ] &&
-        tr '\0' ' ' < "/proc/$_p/cmdline" 2>/dev/null | grep -q '/unisoc-modem/cell'
-}
-age_of() { [ -s "$1" ] && echo $(( $(now) - $(date -r "$1" +%s 2>/dev/null || echo 0) )) || echo -1; }
-
+# Compatibility clients use the same resident RPC as the browser.
 m_status() {
-    local info=null cage sage busy=0 fbusy=0
-    if [ "${1:-}" != cells ]; then
-        info=$("$DASH/dashboard-info" 2>/dev/null)
-        [ -n "$info" ] || info='{"error":"dashboard-info failed"}'
-    fi
-    cage=$(age_of "$CELL"); sage=$(age_of "$SIGF")
-    # two refresh tiers, both detached: the fast one keeps the serving-cell data
-    # fresh on the next status poll, the full one refreshes neighbours/QoS/operator.
-    # a full round in flight also writes the fast cache, so it counts for both.
-    # During a lock apply (SFUN restart) do not kick anything: the modem answers
-    # garbage mid-restart and the collectors would only burn the AT channel.
-    if [ -d /run/unisoc-modem-lock-apply ]; then busy=1; fbusy=1; fi
-    if collecting; then busy=1; fbusy=1; fi
-    fast_busy && fbusy=1
-    # A full round also refreshes sig.json. Prefer it when both tiers are stale;
-    # starting full and fast together doubles the AT burst for no benefit.
-    if { [ "$cage" -lt 0 ] || [ "$cage" -ge "$TTL" ]; } && [ "$busy" = 0 ]; then
-        setsid "$DASH/cell" >/dev/null 2>&1 &
-        busy=1; fbusy=1
-    elif [ "${1:-}" != cells ] && { [ "$sage" -lt 0 ] || [ "$sage" -ge "$TTL_FAST" ]; } && [ "$fbusy" = 0 ]; then
-        setsid "$DASH/cell" fast >/dev/null 2>&1 &
-        fbusy=1
-    fi
-    printf '{"info":%s,"cell":%s,"sig":%s,"cell_age":%d,"sig_age":%d,"refreshing":%d}\n' \
-        "$info" \
-        "$([ -s "$CELL" ] && cat "$CELL" || echo null)" \
-        "$([ -s "$SIGF" ] && cat "$SIGF" || echo null)" \
-        "$cage" "$sage" "$busy"
+    local method=status
+    [ "${1:-}" != cells ] || method=cells
+    ubus -S -t 20 call e5status "$method" "{\"slot\":\"${MU300_SIM_SLOT:-}\"}" || {
+        printf '{"error":"Unable to read dashboard status"}\n'; return 1;
+    }
 }
-
-# Fast, uncached per-card counters. No AT, Wi-Fi enumeration or full sysinfo.
-# Fractional uptime avoids integer-second jitter in subsecond rate deltas.
 m_rates() {
-    local dev=sipa_eth0 stamp rest rx=0 tx=0 idx base=0 offset=0 path r t
-    [ "$MU300_SIM_SLOT" = 0 ] || dev=sipa_eth8
-    [ "$MU300_SIM_SLOT" = 0 ] || base=8
-    IFS=' ' read -r stamp rest < /proc/uptime
-    case "$stamp" in ''|*[!0-9.]*) printf '{"error":"Clock unavailable"}\n'; return ;; esac
-    if ! IFS= read -r idx < "/sys/class/net/$dev/ifindex"; then
-        printf '{"card":%s,"ts":%s,"device":"%s","net":null}\n' "$MU300_SIM_SLOT" "$stamp" "$dev"
-        return
-    fi
-    while [ "$offset" -lt 8 ]; do
-        path=/sys/class/net/sipa_eth$((base + offset))
-        offset=$((offset + 1))
-        [ -d "$path" ] || continue
-        if ! { IFS= read -r r < "$path/statistics/rx_bytes" && IFS= read -r t < "$path/statistics/tx_bytes"; }; then
-            printf '{"card":%s,"ts":%s,"device":"%s","net":null}\n' "$MU300_SIM_SLOT" "$stamp" "$dev"
-            return
-        fi
-        case "$r:$t" in *[!0-9:]*|:*|*:) printf '{"error":"Counters unavailable"}\n'; return ;; esac
-        rx=$((rx + r)); tx=$((tx + t))
-    done
-    case "$idx" in *[!0-9]*) printf '{"error":"Counters unavailable"}\n'; return ;; esac
-    [ -n "$rx" ] && [ -n "$tx" ] && [ -n "$idx" ] || { printf '{"error":"Counters unavailable"}\n'; return; }
-    printf '{"card":%s,"ts":%s,"device":"%s","ifindex":%s,"net":{"rx":%s,"tx":%s}}\n' \
-        "$MU300_SIM_SLOT" "$stamp" "$dev" "$idx" "$rx" "$tx"
+    ubus -S -t 3 call e5status rates "{\"slot\":\"${MU300_SIM_SLOT:-}\"}" || {
+        printf '{"error":"Counters unavailable"}\n'; return 1;
+    }
 }
 
 # Live serving-cell snapshot for views where stale radio readings are actively
@@ -322,6 +260,8 @@ do_list() {
 	"traffic_clear": { "slot": "String", "confirm": false },
 	"apn_get": { },
 	"apn_set": { "action": "String", "payload": "String" },
+	"ttl_get": { },
+	"ttl_set": { "value": "String" },
 	"usb_get": { },
 	"usb_set": { "kind": "String", "value": "String", "scope": "String", "auto": "String" },
 	"usb_net_list": { },
@@ -350,6 +290,8 @@ list)
 call)
     case ${2:-} in
         sysinfo)    run_m sysinfo    'm_sysinfo' ;;
+        ttl_get) "$DASH/ttl" get ;;
+        ttl_set) "$DASH/ttl" set "$(inp '@.value')" ;;
         apn_get)    "$DASH/apn" get ;;
         apn_set)
             action=$(inp '@.action'); payload=$(inp '@.payload')

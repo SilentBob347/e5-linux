@@ -1,0 +1,20 @@
+#!/usr/bin/ucode
+// Placement only: preserve CPU hotplug, governors, frequency and IRQ policy.
+import * as fs from 'fs';
+import { cursor } from 'uci';
+const root=getenv('E5_CPU_SYSROOT') || '';
+const config=getenv('E5_CPU_CONFIG') || '/etc/config';
+let mode=cursor(config).get('unisoc_modem','main','services_cpus') || 'little';
+if(mode=='all') {print('all\n');exit(0);}
+if(mode!='little')die('Invalid background CPU placement\n');
+let lowest=null, cpus=[];
+for(let dir in fs.glob(root+'/sys/devices/system/cpu/cpu[0-9]*') || []) {
+    if(trim(fs.readfile(dir+'/online') || '')=='0')continue;
+    let value=trim(fs.readfile(dir+'/cpu_capacity') || '');
+    if(!match(value,/^[1-9][0-9]*$/))continue;
+    let capacity=+value;
+    if(lowest==null || capacity<lowest) {lowest=capacity;cpus=[];}
+    if(capacity==lowest)push(cpus,replace(dir,/.*\/cpu/,''));
+}
+if(!length(cpus))die('No online CPU capacity information for background services\n');
+print(join(',',cpus)+'\n');

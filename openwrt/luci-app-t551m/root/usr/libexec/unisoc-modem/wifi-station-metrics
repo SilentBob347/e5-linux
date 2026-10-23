@@ -145,7 +145,10 @@ def fill(rows, iface, cache_dir=CACHE):
 
 
 def main():
-    if len(sys.argv) > 1 and sys.argv[1] == '--refresh':
+    if len(sys.argv) > 3 and sys.argv[1] == '--kick':
+        _, _, iface, *macs = sys.argv
+        fill([[mac, '', '', '', ''] for mac in macs], iface)
+    elif len(sys.argv) > 1 and sys.argv[1] == '--refresh':
         _, _, iface, key, lockfd, *macs = sys.argv
         if IFACE.fullmatch(iface) and key.startswith(iface + '-') and all(MAC.fullmatch(m) for m in macs):
             refresh(iface, key, macs)

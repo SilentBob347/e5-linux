@@ -20,7 +20,7 @@ def check(binary, preferred, responses, expected, delayed=False, error_split=Non
     if delayed:
         time.sleep(.3)
         os.symlink(os.ttyname(slave), port)
-    commands, pending = [], b''
+    commands, pending, sent = [], b'', []
     deadline = time.monotonic() + 10
     try:
         while process.poll() is None:
@@ -31,6 +31,7 @@ def check(binary, preferred, responses, expected, delayed=False, error_split=Non
             while b'\r' in pending:
                 command, pending = pending.split(b'\r', 1)
                 commands.append(command.decode())
+                sent.append(time.monotonic())
                 if command == b'AT':
                     response = 'OK'
                 elif command in (b'AT+SPACTCARD=0;+CPIN?', b'AT+SPACTCARD=1;+CPIN?'):
@@ -51,6 +52,10 @@ def check(binary, preferred, responses, expected, delayed=False, error_split=Non
         assert commands == ['AT', 'AT+SPACTCARD=0;+CPIN?', 'AT+SPACTCARD=1;+CPIN?',
                             f'AT+SPACTCARD={expected};+CFUN?'], commands
         assert 'secret' not in stdout + stderr
+        for previous,current in zip(sent,sent[1:]):
+            assert current-previous >= .045, (commands,current-previous)
+        if not delayed and error_split is None:
+            assert sent[-1]-sent[0] < .4, sent  # no fixed 400 ms per query
     finally:
         if process.poll() is None:
             process.kill()

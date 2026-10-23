@@ -1,0 +1,229 @@
+#!/usr/bin/python3
+"""Mirror cached D-Bus properties for native dashboard reads, without AT.
+
+Subscribe before the initial ObjectManager snapshot. Replay signals received
+during the snapshot, clear state on owner loss, and reject signals from another
+sender. No message bodies, calls, numbers or passwords enter the mirror file.
+"""
+import asyncio
+import json
+import os
+from pathlib import Path
+import signal
+import sys
+
+sys.path.insert(0, '/usr/lib/e5/vendor/dbus_next-0.2.3-py3-none-any.whl')
+from dbus_next import BusType, Message, MessageType
+from dbus_next.aio import MessageBus
+
+MM = 'org.freedesktop.ModemManager1'
+ROOT = '/org/freedesktop/ModemManager1'
+MANAGER = 'org.freedesktop.DBus.ObjectManager'
+PROPERTIES = 'org.freedesktop.DBus.Properties'
+RUN = Path('/run/e5-mm-state')
+
+
+def unwrap(value):
+    if hasattr(value, 'value'):
+        return unwrap(value.value)
+    if isinstance(value, dict):
+        return {k: unwrap(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [unwrap(v) for v in value]
+    return value
+
+
+class Mirror:
+    FIELDS = {MM + '.Modem': {'Device', 'Plugin', 'State', 'Sim'},
+              MM + '.Sim': {'SimIdentifier', 'Imsi'}}
+
+    def __init__(self):
+        self.objects = {}
+        self.owner = None
+
+    def apply(self, path, interface, member, body):
+        body = unwrap(body)
+        if interface == MANAGER and member == 'InterfacesAdded':
+            self.objects.setdefault(body[0], {}).update(body[1])
+        elif interface == MANAGER and member == 'InterfacesRemoved':
+            for name in body[1]:
+                self.objects.get(body[0], {}).pop(name, None)
+        elif interface == PROPERTIES and member == 'PropertiesChanged':
+            props = self.objects.setdefault(path, {}).setdefault(body[0], {})
+            props.update(body[1])
+            for name in body[2]:
+                props.pop(name, None)
+        # Drop interfaces we do not consume, particularly Messaging/Call/SMS.
+        self.objects = {p: {i: {k: x for k, x in v.items() if k in self.FIELDS[i]}
+                           for i, v in interfaces.items() if i in self.FIELDS}
+                        for p, interfaces in self.objects.items()
+                        if any(i in interfaces for i in self.FIELDS)}
+
+    def snapshot(self, slot):
+        result = {'alive': False, 'sim': {'slot': slot}}
+        if slot not in ('0', '1') or not self.owner:
+            return result
+        for path, interfaces in self.objects.items():
+            modem = interfaces.get(MM + '.Modem', {})
+            if modem.get('Plugin') != 'unisoc' or modem.get('Device') != 'unisoc-sipc':
+                continue
+            sim = self.objects.get(modem.get('Sim'), {}).get(MM + '.Sim', {})
+            result.update(alive=True, modem=path, state=modem.get('State'))
+            result['sim'].update(iccid=sim.get('SimIdentifier', ''), imsi=sim.get('Imsi', ''))
+            break
+        return result
+
+
+async def serve():
+    os.umask(0o077)
+    RUN.mkdir(parents=True, exist_ok=True)
+    RUN.chmod(0o700)
+    mirror = Mirror()
+    loop = asyncio.get_running_loop()
+    stop = asyncio.Event()
+    pending = []
+    loading = True
+    publish_handle = None
+    owner_task = None
+    property_tasks = {}
+    bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+
+    async def call(destination, path, interface, member, signature='', body=None):
+        reply = await asyncio.wait_for(bus.call(Message(destination=destination,
+            path=path, interface=interface, member=member, signature=signature,
+            body=body or [])), 3)
+        if reply.message_type == MessageType.ERROR:
+            raise RuntimeError('ModemManager property subscription failed')
+        return reply.body
+
+    def publish():
+        nonlocal publish_handle
+        publish_handle = None
+        try:
+            slot = Path('/sys/module/sipc_wwan/parameters/card').read_text().strip()
+        except OSError:
+            slot = None
+        value = mirror.snapshot(slot)
+        value.update(pid=os.getpid(), boot_id=Path('/proc/sys/kernel/random/boot_id').read_text().strip())
+        temporary = RUN / 'state.new'
+        temporary.write_text(json.dumps(value) + '\n')
+        temporary.chmod(0o600)
+        temporary.replace(RUN / 'state.json')
+
+    def schedule():
+        nonlocal publish_handle
+        if publish_handle is None:
+            publish_handle = loop.call_later(.05, publish)
+
+    async def refresh_property(owner, path, interface):
+        # Invalidated D-Bus properties require GetAll of the owner's cache.
+        # This never requests a modem refresh or sends a command to the CP.
+        try:
+            properties = (await call(owner, path, PROPERTIES, 'GetAll', 's', [interface]))[0]
+        except (RuntimeError, asyncio.TimeoutError):
+            return  # Removal can race GetAll; the fields remain unknown.
+        if mirror.owner != owner:
+            return
+        args = (path, PROPERTIES, 'PropertiesChanged', [interface, properties, []])
+        if loading:
+            pending.append(args)
+        else:
+            mirror.apply(*args)
+            schedule()
+
+    async def load(owner):
+        nonlocal loading, pending
+        loading = True
+        mirror.objects = {}
+        mirror.owner = owner
+        publish()
+        if owner:
+            try:
+                objects = unwrap((await call(owner, ROOT, MANAGER, 'GetManagedObjects'))[0])
+                mirror.objects = objects
+                mirror.apply('', '', '', [])
+            except Exception:
+                # Explicit process failure: procd reconnects this same backend.
+                stop.set()
+                raise
+        for args in pending:
+            mirror.apply(*args)
+        pending = []
+        loading = False
+        schedule()
+
+    def message(msg):
+        nonlocal owner_task, loading
+        if msg.message_type != MessageType.SIGNAL:
+            return
+        if (msg.sender == 'org.freedesktop.DBus' and
+            msg.interface == 'org.freedesktop.DBus' and msg.member == 'NameOwnerChanged' and
+            msg.body[0] == MM):
+            if owner_task:
+                owner_task.cancel()
+            for task in property_tasks.values():
+                task.cancel()
+            property_tasks.clear()
+            pending.clear()
+            loading = True
+            mirror.owner = msg.body[2] or None
+            mirror.objects.clear()
+            publish()
+            owner_task = loop.create_task(load(msg.body[2] or None))
+            return
+        if msg.sender != mirror.owner or not (msg.path == ROOT or msg.path.startswith(ROOT + '/')):
+            return
+        if msg.interface not in (MANAGER, PROPERTIES):
+            return
+        if msg.interface == PROPERTIES and (msg.body[0] not in Mirror.FIELDS or
+            not (set(msg.body[1]) | set(msg.body[2])) & Mirror.FIELDS[msg.body[0]]):
+            return
+        if msg.interface == PROPERTIES:
+            key = (msg.path, msg.body[0])
+            task = property_tasks.pop(key, None)
+            if task:
+                task.cancel()
+            if set(msg.body[2]) & Mirror.FIELDS[msg.body[0]]:
+                property_tasks[key] = loop.create_task(refresh_property(mirror.owner, *key))
+        args = (msg.path, msg.interface, msg.member, msg.body)
+        if loading:
+            pending.append(args)
+        else:
+            mirror.apply(*args)
+            schedule()
+
+    bus.add_message_handler(message)
+    for rule in (f"type='signal',sender='{MM}',path_namespace='{ROOT}'",
+                 f"type='signal',sender='org.freedesktop.DBus',interface='org.freedesktop.DBus',member='NameOwnerChanged',arg0='{MM}'"):
+        await call('org.freedesktop.DBus', '/org/freedesktop/DBus', 'org.freedesktop.DBus', 'AddMatch', 's', [rule])
+    # NameHasOwner avoids treating a normal not-yet-started MM as a failure.
+    present = (await call('org.freedesktop.DBus', '/org/freedesktop/DBus',
+                         'org.freedesktop.DBus', 'NameHasOwner', 's', [MM]))[0]
+    owner = (await call('org.freedesktop.DBus', '/org/freedesktop/DBus',
+                       'org.freedesktop.DBus', 'GetNameOwner', 's', [MM]))[0] if present else None
+    if owner_task is None:
+        owner_task = loop.create_task(load(owner))
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, stop.set)
+    waiting = loop.create_task(stop.wait())
+    disconnected = loop.create_task(bus.wait_for_disconnect())
+    try:
+        done, _ = await asyncio.wait([waiting, disconnected], return_when=asyncio.FIRST_COMPLETED)
+        if owner_task.done():
+            owner_task.result()
+        if disconnected in done:
+            raise RuntimeError('ModemManager property bus disconnected')
+    finally:
+        if publish_handle:
+            publish_handle.cancel()
+        owner_task.cancel()
+        for task in property_tasks.values():
+            task.cancel()
+        waiting.cancel()
+        disconnected.cancel()
+        bus.disconnect()
+        (RUN / 'state.json').unlink(missing_ok=True)
+
+
+if __name__ == '__main__':
+    asyncio.run(serve())

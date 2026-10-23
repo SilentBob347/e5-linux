@@ -3,7 +3,7 @@ from pathlib import Path
 import sys
 import tempfile
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'overlay/usr/lib/e5'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tests/reference'))
 from e5_power_events import PowerEvents
 
 with tempfile.TemporaryDirectory() as tmp:

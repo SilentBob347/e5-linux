@@ -123,11 +123,9 @@ window.T551M = (() => {
         if (key === navKey) return;
         navKey = key;
         el('mobile-nav').innerHTML = items.map(i => `<button data-page="${i}">${svg(pageIcons[i])}<span data-page-label="${i}">${label(i)}</span></button>`).join('');
-        // CSS ordering preserves live iframe/DOM state and makes the existing
-        // lightweight slide animation follow the same order as the buttons.
+        // Keep DOM/iframe state intact; ordering also drives menu and swipe navigation.
         const order = pageOrder();
         order.forEach((id, index) => { pages[id].style.order = index; });
-        el('pages').style.transform = `translateX(${-100 * position(page)}%)`;
         el('mobile-menu').querySelectorAll('.mobile-grid [data-page]').forEach(node => {
             node.style.order = position(+node.dataset.page);
         });

@@ -70,7 +70,9 @@ set -euo pipefail
 # 35: vendor SFUN RF control and distinguish RF-off from cold SIM power-up.
 # 36: accept the recipient's extended ECIND readiness after insertion/SIM busy.
 # 37: retain Unisoc call identity after a failed/ambiguous accept result.
-E5REV=37
+# 38: finish collection when the complete internal SIPC port bank is present.
+# 39: empty C5GREG NSSAI must not consume the final OK as registration data.
+E5REV=39
 VER=${E5_WRT_VER:-25.12.5}
 HERE="$(cd "$(dirname "$0")" && pwd)"
 TOP="$(cd "$HERE/.." && pwd)"
@@ -87,6 +89,8 @@ done
 # the source patches, numbered after OpenWrt's own
 rm -rf "$WORK/patches" && mkdir -p "$WORK/patches/src" "$WORK/patches/pkg"
 cp "$HERE/tests/voice-identity.py" "$WORK/voice-identity.py"
+cp "$HERE/tests/modem-port-set-ready.py" "$WORK/modem-port-set-ready.py"
+cp "$HERE/tests/c5greg-empty-nssai.py" "$WORK/c5greg-empty-nssai.py"
 cp "$HERE/tests/sim-power.py" "$WORK/sim-power.py"
 cp "$HERE/tests/sim-events.py" "$WORK/sim-events.py"
 cp "$HERE/tests/voice-urc.py" "$WORK/voice-urc.py"
@@ -201,6 +205,8 @@ make package/modemmanager/compile -j"$JOBS" >/build/log 2>&1 || { tail -80 /buil
 voice_source=$(find build_dir -path "*/modemmanager-*/src/mm-iface-modem-voice.c" -print -quit)
 [ -n "$voice_source" ] || { echo "missing patched voice source" >&2; exit 1; }
 python3 /work/voice-identity.py "$(dirname "$voice_source")"
+python3 /work/modem-port-set-ready.py "$(dirname "$voice_source")/mm-plugin-manager.c"
+python3 /work/c5greg-empty-nssai.py "$(dirname "$voice_source")/mm-modem-helpers.c"
 python3 /work/sim-power.py "$(dirname "$voice_source")"
 python3 /work/sim-events.py "$(dirname "$voice_source")"
 python3 /work/voice-urc.py "$(dirname "$voice_source")"

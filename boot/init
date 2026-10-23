@@ -35,6 +35,9 @@ fi
 pmsg_major=$(awk '$2=="pmsg"{print $1}' /proc/devices)
 [ -n "$pmsg_major" ] && [ ! -e /dev/pmsg0 ] && mknod /dev/pmsg0 c "$pmsg_major" 0
 
+# Initialize the kernel entropy source without blocking PID 1's module pass.
+if [ -c /dev/random ]; then head -c 1 /dev/random >/dev/null 2>&1 & fi
+
 log() {
     echo "<3>E5-LINUX: $*" > /dev/kmsg
     [ -c /dev/pmsg0 ] && echo "E5-LINUX: $*" > /dev/pmsg0
@@ -155,16 +158,22 @@ load_linux_slot() {
 }
 load_linux_slot || log 'stage=linux-slot-unknown persistent-boot-writes-disabled'
 find_partitions() {
-    n=0
-    while [ "$n" -lt "${1:-20}" ]; do
+    local n=0 limit=$(( ${1:-20} * 10 )) name key value part
+    while [ "$n" -lt "$limit" ]; do
         for u in /sys/class/block/mmcblk*p*/uevent; do
-            grep -qx PARTNAME=misc "$u" 2>/dev/null && misc=/dev/$(basename "$(dirname "$u")")
-            [ -n "$linux_slot" ] && grep -qx "PARTNAME=boot_$linux_slot" "$u" 2>/dev/null && bootb=/dev/$(basename "$(dirname "$u")")
+            [ -r "$u" ] || continue
+            part=
+            while IFS='=' read -r key value; do
+                [ "$key" != PARTNAME ] || part=$value
+            done < "$u"
+            name=${u%/uevent}; name=${name##*/}
+            [ "$part" != misc ] || misc=/dev/$name
+            [ -z "$linux_slot" ] || [ "$part" != "boot_$linux_slot" ] || bootb=/dev/$name
         done
         [ -b "$misc" ] && return 0
         n=$((n + 1))
-        mdev -s
-        sleep 1
+        /bin/busybox usleep 100000
+        [ $((n % 10)) != 0 ] || mdev -s
     done
     return 1
 }
@@ -356,16 +365,16 @@ early_wcn_ready() {
     while :; do
         for phy in /sys/class/ieee80211/*; do
             if [ -d "$phy" ]; then
-                log "stage=wcn-handoff-ready waited=${n}s"
+                log "stage=wcn-handoff-ready waited_ms=$((n * 200))"
                 return 0
             fi
         done
         # A genuinely failed radio must not prevent the management system boot.
-        [ "$n" -ge 15 ] && break
-        sleep 1
+        [ "$n" -ge 75 ] && break
+        /bin/busybox usleep 200000
         n=$((n + 1))
     done
-    log "stage=wcn-handoff-timeout waited=${n}s"
+    log "stage=wcn-handoff-timeout waited_ms=$((n * 200))"
     return 0
 }
 
@@ -1048,6 +1057,13 @@ if [ -n "$rootdir" ]; then
         [ -e "$bl" ] && chmod 0666 "$bl" 2>/dev/null && log "stage=backlight-perm $bl"
     done
     fi
+    # Warm the real root's module page cache in parallel. Keep the ordinary
+    # procd module pass and failsafe; this reader never loads a driver.
+    prefetch=
+    if [ -d "/newroot/lib/modules/$(uname -r)" ]; then
+        (cd "/newroot/lib/modules/$(uname -r)" && exec cat -- *.ko) >/dev/null 2>&1 </dev/null &
+        prefetch=$!
+    fi
     early_wcn_ready
     log "stage=switch-root root=$rootdir init=$init os=$(sed -n 's/^PRETTY_NAME=//p' /newroot/etc/os-release)"
     persist
@@ -1056,7 +1072,10 @@ if [ -n "$rootdir" ]; then
     # that was only meant for the standalone fallback.
     kill $persist_job $timer_job 2>/dev/null
     log "stage=switch-root-jobs-killed persist=${persist_job:-?} timer=${timer_job:-?}"
-    for p in /proc/[0-9]*; do [ "${p#/proc/}" = 1 ] || kill -9 "${p#/proc/}" 2>/dev/null; done
+    for p in /proc/[0-9]*; do
+        p=${p#/proc/}
+        [ "$p" = 1 ] || [ "$p" = "$prefetch" ] || kill -9 "$p" 2>/dev/null
+    done
     umount /config 2>/dev/null
     mkdir -p /newroot/dev /newroot/proc /newroot/sys /newroot/run
     mount --move /dev /newroot/dev

@@ -115,7 +115,8 @@ def main():
         'ucode /target/usr/libexec/unisoc-modem/disable-channel-analysis /target && '
         # Incremental builds must also add newly mandatory packages to old bases.
         'apk_retry --root /target update >/dev/null && '
-        'apk_retry --root /target --no-scripts add ttyd luci-app-ttyd luci-i18n-ttyd-zh-cn luci-i18n-ttyd-tr iw-full && '
+        'apk_retry --root /target --no-scripts add ttyd luci-app-ttyd luci-i18n-ttyd-zh-cn luci-i18n-ttyd-tr iw-full '
+        'rpcd-mod-ucode ucode-mod-fs ucode-mod-ubus ucode-mod-uci ucode-mod-uloop ucode-mod-rtnl ucode-mod-nl80211 && '
         'sh /target/usr/libexec/e5-ttyd-bind /target && '
         'ln -sf ../init.d/ttyd /target/etc/rc.d/S99ttyd && '
         'ln -sf ../init.d/ttyd /target/etc/rc.d/K50ttyd && '
@@ -292,11 +293,18 @@ def audit(root, profile, release):
     # That binary omits Supported Ciphers, so capability filtering stays inert.
     packages = (root / 'lib/apk/db/installed').read_text()
     assert re.search(r'^P:iw-full$', packages, re.M), 'Full iw capabilities are required'
+    for package in ('rpcd-mod-ucode', 'ucode-mod-fs', 'ucode-mod-ubus',
+                    'ucode-mod-uci', 'ucode-mod-uloop', 'ucode-mod-rtnl', 'ucode-mod-nl80211'):
+        assert re.search(r'^P:' + re.escape(package) + r'$', packages, re.M), package
     for name in ('sbin/block', 'lib/libblkid-tiny.so', 'etc/init.d/fstab',
                  'lib/netifd/hostapd-unisoc.sh', 'usr/share/ucode/wifi/unisoc-sae.uc',
                  'etc/e5/wifi-sae.build-id',
                  'usr/sbin/ModemManager', 'usr/libexec/e5-infoscreen/session',
-                 'usr/bin/openssl', 'usr/bin/msmtp', 'usr/bin/python3'):
+                 'usr/bin/openssl', 'usr/bin/msmtp', 'usr/bin/python3',
+                 'opt/e5/t551m-atd', 'usr/libexec/e5-mm-state',
+                 'usr/libexec/e5-background', 'usr/libexec/e5-background-cpus',
+                 'usr/libexec/e5-charge-core.uc', 'usr/libexec/e5-usb-watch.uc',
+                 'usr/share/ucode/e5/dash.uc', 'usr/share/rpcd/ucode/e5status.uc'):
         assert (root / name).stat().st_size, name
     modem = (root / 'etc/config/unisoc_modem').read_text()
     # The selector is shared by every model. Keep the board's default

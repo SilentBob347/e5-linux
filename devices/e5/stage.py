@@ -51,7 +51,7 @@ def stage_nv(root):
     # bound. This wait ends at readiness; it is not a background poller.
     service = service.replace('instance cp_diskserver /opt/e5/android-run cp_diskserver',
         "instance cp_diskserver /bin/sh -c 'i=0; until [ -e /run/e5-vendor-prepared ]; do "
-        "i=$((i + 1)); [ $i -lt 120 ] || exit 1; sleep 0.1; done; exec /opt/e5/android-run cp_diskserver'")
+        "i=$((i + 1)); [ $i -lt 120 ] || exit 1; /opt/e5/bin/busybox usleep 100000; done; exec /opt/e5/android-run cp_diskserver'")
     service += '\nstop_service() {\n\t/opt/e5/t551m-nv-stop quiesce\n}\n\nservice_stopped() {\n\t/opt/e5/t551m-nv-stop detach\n}\n'
     (root / 'etc/init.d/e5-vendor').write_text(service)
     (root / 'etc/init.d/e5-vendor').chmod(0o755)
@@ -79,6 +79,7 @@ fi
     text = text.replace('echo "stage=exec"', 'touch /run/e5-vendor-prepared\necho "stage=exec"', 1)
     vendor.write_text(text)
     link(root, 'K10e5-vendor', 'e5-vendor')
+    runpy.run_path(str(SHARED / 'network-startup.py'))['patch_vendor_startup'](root)
 
 
 def stage(root):

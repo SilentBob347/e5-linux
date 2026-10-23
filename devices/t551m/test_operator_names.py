@@ -7,7 +7,7 @@ import subprocess
 import unittest
 
 TOP=Path(__file__).resolve().parents[2]
-spec=importlib.util.spec_from_file_location('sims',Path(__file__).with_name('infoscreen')/'sim-status.py')
+spec=importlib.util.spec_from_file_location('sims',Path(__file__).with_name('tests') / 'reference'/'sim-status.py')
 sims=importlib.util.module_from_spec(spec);spec.loader.exec_module(sims)
 PARSER=TOP/'openwrt/luci-app-t551m/root/usr/libexec/unisoc-modem/operator.uc'
 CASES=[]

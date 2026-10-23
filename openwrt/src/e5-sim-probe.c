@@ -33,9 +33,13 @@ static int final_response(const char *reply) {
  return 0;
 }
 static int query(int fd,const char *command,char *reply,size_t size,int timeout) {
+ static long long last_write;
+ long long wait=last_write+50-milliseconds();
+ if(wait>0)usleep((useconds_t)wait*1000);
  size_t used=0;long long due=milliseconds()+timeout;
  reply[0]=0;
  if(write(fd,command,strlen(command))!=(ssize_t)strlen(command))return -1;
+ last_write=milliseconds();
  while(milliseconds()<due && used+1<size) {
   struct pollfd p={fd,POLLIN,0};
   int ready=poll(&p,1,100);
@@ -89,13 +93,12 @@ int main(int argc,char **argv) {
  }
  if(!alive){close(fd);fprintf(stderr,"SIM probe: AT not ready; retaining preference\n");printf("%d\n",preferred);return 0;}
  for(int card=0;card<2;card++) {
-  usleep(400000);
   snprintf(command,sizeof(command),"AT+SPACTCARD=%d;+CPIN?\r",card);
   if(!query(fd,command,response,sizeof(response),3000))status[card]=presence(response);
  }
  /* Leave the channel on the chosen card. This final query is read-only. */
  int selected=select_card(preferred,status[0],status[1]);
- usleep(400000);snprintf(command,sizeof(command),"AT+SPACTCARD=%d;+CFUN?\r",selected);
+ snprintf(command,sizeof(command),"AT+SPACTCARD=%d;+CFUN?\r",selected);
  query(fd,command,response,sizeof(response),3000);close(fd);
  fprintf(stderr,"SIM probe: SIM1=%s SIM2=%s selected=SIM%d\n",status[0]==1?"inserted":status[0]==0?"absent":"unknown",status[1]==1?"inserted":status[1]==0?"absent":"unknown",selected+1);
  printf("%d\n",selected);return 0;

@@ -110,6 +110,7 @@ service_stopped() {
     link = root / 'etc/rc.d/S14e5-charge-mode'
     if not link.is_symlink():
         link.symlink_to('../init.d/e5-charge-mode')
+    runpy.run_path(str(top / 'devices/t551m/network-startup.py'))['patch_vendor_startup'](root)
     runpy.run_path(str(Path(__file__).with_name('ui.py')))['stage'](root)
     service = root / 'etc/init.d/t551m-trial'
     shutil.copy2(Path(__file__).with_name('trial-service'), service)

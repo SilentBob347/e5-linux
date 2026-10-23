@@ -8,7 +8,7 @@ start_service() {
     # nr2: terminal/configuration; nr6/nr7: two bounded collector slots.
     for channel in 2 6 7; do
         procd_open_instance nr$channel
-        procd_set_param command /usr/bin/python3 /opt/e5/t551m-atd --serve --channel "$channel"
+        procd_set_param command /usr/libexec/e5-background /opt/e5/t551m-atd --serve --channel "$channel"
         procd_set_param respawn 3600 5 5
         procd_set_param stdout 1
         procd_set_param stderr 1

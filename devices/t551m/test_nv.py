@@ -5,6 +5,7 @@ from pathlib import Path
 import struct
 import tempfile
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('nv_prepare', Path(__file__).with_name('nv-prepare.py'))
 nv = importlib.util.module_from_spec(spec)
@@ -12,6 +13,49 @@ spec.loader.exec_module(nv)
 
 
 class CalibrationValidation(unittest.TestCase):
+    def test_reuse_only_current_invocation_pair_validation(self):
+        primary = self.image(b'\x01\x00', 0xfffe, 'nr_fixnv1_a')
+        backup = self.image(b'\x01\x00', 0xfffe, 'nr_fixnv2_a')
+        pair = (primary.name, backup.name)
+        with patch.object(nv, 'PAIRS', (pair,)):
+            with patch.object(nv, 'reconcile_pair', wraps=nv.reconcile_pair) as reconcile:
+                verified = nv.recover_existing_pairs(primary.parent, dict.fromkeys(pair, 'known'), ())
+                nv.finish_pairs(primary.parent, (), verified, set())
+                self.assertEqual(reconcile.call_count, 1)
+                # The next invocation must validate again; nothing is persisted.
+                damaged = bytearray(backup.read_bytes()); damaged[-1] ^= 1
+                backup.write_bytes(damaged)
+                verified = nv.recover_existing_pairs(primary.parent, dict.fromkeys(pair, 'known'), ())
+                self.assertEqual(primary.read_bytes(), backup.read_bytes())
+                self.assertEqual(reconcile.call_count, 2)
+
+    def test_full_equality_checks_padding_and_unused_tail(self):
+        primary = self.image(b'\x01\x00', 0xfffe, 'nr_fixnv1_a')
+        backup = self.image(b'\x01\x00', 0xfffe, 'nr_fixnv2_a')
+        original=primary.read_bytes()+bytes(2*1024*1024)
+        primary.write_bytes(original);backup.write_bytes(original)
+        self.assertTrue(nv.same_contents(primary,backup))
+        data=bytearray(original);data[-1]=1;backup.write_bytes(data)
+        nv.validate_nv(backup)
+        self.assertFalse(nv.same_contents(primary,backup))
+        self.assertTrue(nv.reconcile_pair(primary,backup))
+        self.assertEqual(primary.read_bytes(),backup.read_bytes())
+        backup.write_bytes(original+b'\x00')
+        self.assertFalse(nv.same_contents(primary,backup))
+
+    def test_imported_or_untracked_pair_is_reconciled_after_initial_checks(self):
+        primary = self.image(b'\x01\x00', 0xfffe, 'nr_fixnv1_a')
+        backup = self.image(b'\x01\x00', 0xfffe, 'nr_fixnv2_a')
+        pair = (primary.name, backup.name)
+        with patch.object(nv, 'PAIRS', (pair,)):
+            verified = nv.recover_existing_pairs(primary.parent, dict.fromkeys(pair, 'known'), ())
+            self.image(b'\x02\x00', 0xfffd, backup.name)
+            nv.finish_pairs(primary.parent, (), verified, {backup.name})
+            self.assertEqual(primary.read_bytes(), backup.read_bytes())
+            self.image(b'\x02\x00', 0xfffd, backup.name)
+            with self.assertRaisesRegex(RuntimeError, 'Detach NV loops'):
+                nv.finish_pairs(primary.parent, (backup,), set(), set())
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)

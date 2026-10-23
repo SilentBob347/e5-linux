@@ -1,7 +1,7 @@
 """Real HTTP stream, change deduplication, origin isolation and bounded shutdown."""
 import http.client,sys,json,time,threading
 from pathlib import Path
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'overlay/usr/lib/e5'))
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tests/reference'))
 from e5_call_events import CallEvents, ORIGIN
 
 events=CallEvents(port=0)

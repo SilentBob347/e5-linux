@@ -120,7 +120,7 @@ main() {
                 text = wrapper.read_text()
                 self.assertLess(text.index('boot-replay early'), text.index('/usr/sbin/ModemManager "$@"'))
                 self.assertGreater(text.index('# unisoc-port-discovery:'), text.index('/usr/sbin/ModemManager "$@"'))
-                self.assertIn('tx_gap_ms=100', loader.read_text())
+                self.assertIn('tx_gap_ms=50', loader.read_text())
 
     def test_installed_update_hook_uses_overlay_helper(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -1,6 +1,11 @@
 {
   "format": 1,
   "base": "{workspace}/base/e5",
+  "native_screen": {
+    "volume": "e5-openwrt-src",
+    "toolchain": "toolchain-aarch64_generic_gcc-14.3.0_musl",
+    "image": "debian:trixie"
+  },
   "defaults": "{repo}/work/e5-port/clean-openwrt-base.tar",
   "busybox": "{repo}/work/t551m/busybox",
   "block_apk": "{repo}/out/openwrt/block-mount-guarded.apk",

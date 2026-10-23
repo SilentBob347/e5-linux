@@ -51,14 +51,6 @@ let bus = null;
 const RUN = '/tmp/run/e5-infoscreen/api';
 
 // state that outlives the request: a JSON file, and its age by its mtime
-function image_version() {
-	try {
-		let version = json(readfile('/etc/unisoc-ota/current.json') ?? 'null')?.version;
-		if (type(version) == 'string' && length(version)) return version;
-	} catch (e) {}
-	return read_trim('/etc/e5/image-version');
-}
-
 function state_get(name, ttl) {
 	let path = `${RUN}/${name}.json`;
 	if (ttl != null) {
@@ -113,6 +105,15 @@ function sh_json(cmd) {
 function read_trim(path) {
 	let s = readfile(path);
 	return (s == null) ? null : trim(s);
+}
+
+// ucode binds function names at definition time: read_trim must precede this.
+function image_version() {
+	try {
+		let version = json(readfile('/etc/unisoc-ota/current.json') ?? 'null')?.version;
+		if (type(version) == 'string' && length(version)) return version;
+	} catch (e) {}
+	return read_trim('/etc/e5/image-version');
 }
 
 function read_num(path) {

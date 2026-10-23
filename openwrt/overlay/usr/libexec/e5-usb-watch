@@ -1,6 +1,18 @@
-#!/bin/sh
-# The USB gadget connected again after a cable replug, or when the host did not
-# enumerate it.  The logic is shared with Debian (rootfs/overlay/opt/e5/
-# usb-watch.sh, copied to /opt/e5/usb-watch.sh by openwrt/build-rootfs.sh); this
-# is the procd service's entry point (/etc/init.d/e5-usb-watch).
-exec /opt/e5/usb-watch.sh
+#!/usr/bin/ucode
+import {connect} from 'ubus';
+import * as uloop from 'uloop';
+import {watchdog} from './e5-usb-watch.uc';
+uloop.init();
+const watch=watchdog(), bus=connect(null,2);
+if(!bus)die('e5-usb-watch: ubus unavailable\n');
+let timer;
+function event() {
+    try {timer.set(watch.tick());}
+    catch(e) {watch.stop();warn('e5-usb-watch: '+e+'\n');exit(1);}
+}
+timer=uloop.timer(-1,event);
+const usb=bus.listener('e5.usb',event), supply=bus.listener('unisoc.battery',event);
+if(!usb || !supply)die('e5-usb-watch: event subscription failed\n');
+const term=uloop.signal(15,()=>uloop.end()), interrupt=uloop.signal(2,()=>uloop.end());
+try {event();uloop.run();} catch(e) {timer.cancel();watch.stop();die('e5-usb-watch: '+e+'\n');}
+timer.cancel();watch.stop();

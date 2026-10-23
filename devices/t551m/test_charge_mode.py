@@ -61,6 +61,18 @@ class ChargeModeTest(unittest.TestCase):
         wait.assert_not_called()
         self.assertEqual(self.bl.read_text(), '180\n')
 
+    def test_early_radio_policy_is_read_only_and_honors_supply_choice(self):
+        for boot, supply, expected in [('normal',False,'early'),('normal',True,'early'),
+                                       ('charger',False,'defer'),('charger',True,'early')]:
+            self.args.write_text('sprdboot.mode=' + boot + '\0')
+            with patch.object(charge,'power_on_supply',return_value=supply), \
+                 patch.object(charge,'wait_for_power') as wait:
+                self.assertEqual(charge.radio_boot_policy(),expected)
+            wait.assert_not_called()
+            self.assertFalse((self.root/'state.json').exists())
+            self.assertEqual(self.bl.read_text(),'180\n')
+            self.assertEqual(self.touch.read_text(),'0\n')
+
     def test_enabled_supply_boot_does_not_start_charging_ui_or_wait_for_keys(self):
         with patch.object(charge, 'power_on_supply', return_value=True), \
              patch.object(charge, 'wait_for_power') as wait:

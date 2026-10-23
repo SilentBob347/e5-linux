@@ -21,6 +21,7 @@ def apply(kernel, *, charger_adapter=None, recipient='m8'):
         raise ValueError('Expected linux-lts-e5 ' + BASE)
     runpy.run_path(str(HERE.parent / 'common/display.py'))['apply'](kernel)
     runpy.run_path(str(HERE.parent / 'common/usb-ncm.py'))['apply'](kernel)
+    runpy.run_path(str(HERE.parent / 'common/boot-optimization.py'))['apply'](kernel)
     runpy.run_path(str(HERE.parent / 'common/power.py'))['apply'](kernel)
     runpy.run_path(str(HERE.parent / 'common/charger-capabilities.py'))['apply'](kernel)
     runpy.run_path(str(HERE.parent / 'common/emmc.py'))['apply'](kernel)

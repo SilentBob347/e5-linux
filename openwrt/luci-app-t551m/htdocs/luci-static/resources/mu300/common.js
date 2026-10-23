@@ -31,7 +31,8 @@ function scopedRpc(method, params) {
 	params = params || [];
 	// An AT-backed request may take seconds. Never share its HTTP batch with
 	// rates/status or another SIM's data. Keep the existing polling/cache rules.
-	var call = rpc.declare({object:'mu300dash', method:method, params:params.concat(['slot']), expect:{'':{}}, nobatch:true});
+	var nativeRead = ['status', 'rates', 'cells'].indexOf(method) >= 0;
+	var call = rpc.declare({object:nativeRead?'e5status':'mu300dash', method:method, params:params.concat(['slot']), expect:{'':{}}, nobatch:true});
 	return function() {
 		var args = Array.prototype.slice.call(arguments, 0, params.length);
 		while (args.length < params.length) args.push('');
@@ -84,7 +85,7 @@ var callRates = scopedRpc('rates');
 /* Separate HTTP replies let cached neighbors/config paint during a live AT read. */
 var callCells = scopedRpc('cells');
 var callSignal = scopedRpc('signal');
-var callSysinfo = rpc.declare({ object: 'mu300dash', method: 'sysinfo', expect: { '': {} }, nobatch: true });
+var callSysinfo = rpc.declare({ object: 'e5status', method: 'sysinfo', expect: { '': {} }, nobatch: true });
 var readSimGet = rpc.declare({object:'mu300dash',method:'sim_get',expect:{'':{}},nobatch:true});
 function callSimGet() {
 	var revision = dataSimRevision;
@@ -138,6 +139,8 @@ var callForwardTest = rpc.declare({ object: 'mu300dash', method: 'forward_test',
 var callTrafficGet = scopedRpc('traffic_get');
 var callTrafficSet = scopedRpc('traffic_set',['payload']);
 var callTrafficClear = rpc.declare({object:'mu300dash',method:'traffic_clear',params:['slot','confirm'],expect:{'':{}}});
+var callTtlGet = rpc.declare({ object: 'mu300dash', method: 'ttl_get', expect: { '': {} } });
+var callTtlSet = rpc.declare({ object: 'mu300dash', method: 'ttl_set', params: [ 'value' ], expect: { '': {} }, nobatch: true });
 var callUsbGet = rpc.declare({ object: 'mu300dash', method: 'usb_get', expect: { '': {} } });
 var callUsbSet = rpc.declare({ object: 'mu300dash', method: 'usb_set', params: [ 'kind', 'value', 'scope', 'auto' ], expect: { '': {} } });
 var callUsbNetList = rpc.declare({ object: 'mu300dash', method: 'usb_net_list', expect: { '': {} } });
@@ -721,6 +724,29 @@ function errorText(value, language) {
 /* END SHARED PLATFORM MESSAGES */
 
 var DASH_I18N = {
+	"另一项 TTL 操作正在执行，请稍后重试": ["Another TTL operation is running; please retry shortly", "Başka bir TTL işlemi çalışıyor; biraz sonra yeniden deneyin"],
+	"正数充电，负数放电；显示电池净电流，不是 USB 输入电流。": ["Positive: charging; negative: discharging. Net battery current, not USB input current.", "Pozitif: şarj; negatif: deşarj. USB giriş akımı değil, net pil akımıdır."],
+	"当前设置": ["Current setting", "Geçerli ayar"],
+	"固定为 %d": ["Fixed at %d", "%d olarak sabit"],
+	"保持不变（默认）": ["Not changed (default)", "Değiştirilmedi (varsayılan)"],
+	"生效规则": ["Rule in force", "Etkin kural"],
+	"流量卸载": ["Flow offloading", "Akış hızlandırma"],
+	"已启用": ["Enabled", "Etkin"],
+	"已禁用": ["Disabled", "Devre dışı"],
+	"蜂窝网络 TTL": ["Cellular TTL", "Mobil veri TTL"],
+	"设为 %d": ["Set %d", "%d ayarla"],
+	"设置": ["Set", "Ayarla"],
+	"关闭 TTL": ["Turn off TTL", "TTL kapat"],
+	"请输入 1 至 255 的整数": ["Enter an integer from 1 to 255", "1 ile 255 arasında tam sayı girin"],
+	"设置会保留到重启后；默认关闭。": ["Settings persist after reboot; disabled by default.", "Ayarlar yeniden başlatmada korunur; varsayılan kapalıdır."],
+	"操作失败：%s": ["Failed: %s", "Başarısız: %s"],
+	"管理连接已断开": ["Management connection lost", "Yönetim bağlantısı kesildi"],
+	"无法读取 TTL 设置": ["Cannot read TTL settings", "TTL ayarı okunamadı"],
+	"无法应用 TTL 设置": ["Cannot apply TTL settings", "TTL ayarı uygulanamadı"],
+	"TTL 无效": ["Invalid TTL", "Geçersiz TTL"],
+	"设置蜂窝出口数据包的 TTL 和 IPv6 跳数限制；仅影响蜂窝网络，不改变 Wi-Fi 或 USB 局域网。": ["Set the TTL and IPv6 hop limit of cellular outbound packets. Local Wi-Fi and USB traffic are unchanged.", "Hücresel çıkışın TTL ve IPv6 atlama sınırını ayarlar. Yerel Wi-Fi ve USB trafiğini değiştirmez."],
+	"启用后会关闭防火墙流量卸载，可能降低转发性能；关闭 TTL 后恢复由本功能修改的卸载设置。": ["Enabling TTL disables firewall flow offloading and may reduce forwarding performance. Turning TTL off restores offloading settings changed by this feature.", "TTL etkinleştirilince akış hızlandırması kapatılır; performans düşebilir. Kapatıldığında bu özelliğin değiştirdiği ayarlar geri yüklenir."],
+
     "自动模式兼容性": ["Automatic mode compatibility", "Otomatik mod uyumluluğu"],
     "机型默认": ["Model default", "Model varsayılanı"],
     "全制式自动（134，含 2G）": ["All-RAT auto (134, includes 2G)", "Tüm teknolojiler otomatik (134, 2G dahil)"],
@@ -1731,6 +1757,11 @@ function esc(s) {
 		return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
 	});
 }
+function fmtBatteryCurrent(ua) {
+	if (typeof ua !== 'number' || !Number.isFinite(ua)) return '--';
+	var ma = Math.round(ua / 1000);
+	return (ma > 0 ? '+' : '') + ma + 'mA';
+}
 function fmtBytes(b) {
 	if (b == null || isNaN(b)) return '--';
 	var u = [ 'B', 'KB', 'MB', 'GB', 'TB' ], i = 0;
@@ -2184,34 +2215,36 @@ function notify(title, message, opts) {
 	return t;
 }
 
-/* 新短信监视（每个页面 render 时调用一次，内部单例）：
- * 每 5 s 读一次本地池第 1 页（纯文件读，不打 AT），首次只记基线；
- * 之后出现更大的消息 id 且为收件（mt）时，按手机通知样式弹出
- * 「发件人 + 预览」。池子被清空（id 回落）时静默重建基线。 */
+/* One metadata check per five seconds; only read a changed shared inbox.
+ * Keep both SIMs, the silent initial baseline and incoming-only notifications. */
+var callSmsHead = rpc.declare({ object:'e5status', method:'sms_head', nobatch:true, expect:{'':{}} });
 var smsWatch = null;
 function watchSms() {
-	if (smsWatch) return;
-	smsWatch = { seen: null };
-	window.setInterval(function() {
-		Promise.resolve(callSmsList(1)).catch(function() { return {}; }).then(function(r) {
-			r = r || {};
-			var msgs = r.msgs || [], max = 0;
-			msgs.forEach(function(m) {
-				var id = parseInt(m.id, 10) || 0;
-				if (id > max) max = id;
-			});
-			if (!max) return;
-			if (smsWatch.seen == null || max < smsWatch.seen) { smsWatch.seen = max; return; }
-			if (max > smsWatch.seen) {
-				msgs.forEach(function(m) {
-					var id = parseInt(m.id, 10) || 0;
-					if (id > smsWatch.seen && m.dir === 'mt')
-						notify('新短信 · ' + (m.peer || '未知号码'), m.preview || '', { type: 'success' });
-				});
-				smsWatch.seen = max;
-			}
-		});
-	}, 5000);
+    if (smsWatch) return;
+    smsWatch = { seen:null, signature:null, busy:false };
+    window.setInterval(function() {
+        if (document.hidden || smsWatch.busy) return;
+        smsWatch.busy = true;
+        Promise.resolve().then(function() { return callSmsHead(); }).then(function(head) {
+            if (!head || typeof head.signature !== 'string' || head.error) throw new Error('SMS metadata unavailable');
+            if (head.signature === smsWatch.signature) return;
+            return callSmsList(1).then(function(r) {
+                if (!r || !Array.isArray(r.msgs) || r.error) throw new Error('SMS list unavailable');
+                var msgs=r.msgs, max=0;
+                msgs.forEach(function(m) { max=Math.max(max,parseInt(m.id,10)||0); });
+                if (smsWatch.seen != null && max >= smsWatch.seen) {
+                    msgs.forEach(function(m) {
+                        var id=parseInt(m.id,10)||0;
+                        if(id>smsWatch.seen && m.dir==='mt')
+                            notify('新短信 · '+(m.peer || '未知号码'),m.preview || '',{type:'success'});
+                    });
+                }
+                smsWatch.seen=max;
+                // A failed list must not consume a signature: retry next tick.
+                smsWatch.signature=head.signature;
+            });
+        }).catch(function() {}).then(function() { smsWatch.busy=false; });
+    },5000);
 }
 
 function confirmBox(title, message, opts) {
@@ -2279,10 +2312,10 @@ return baseclass.extend({
 	callForwardGet: callForwardGet, callForwardStatus: callForwardStatus,
 	callForwardSet: callForwardSet, callForwardTest: callForwardTest, callForwardClear: callForwardClear,
 	callTrafficGet: callTrafficGet, callTrafficSet: callTrafficSet, callTrafficClear: callTrafficClear,
-	callUsbGet: callUsbGet, callUsbSet: callUsbSet,
+	callTtlGet: callTtlGet, callTtlSet: callTtlSet, callUsbGet: callUsbGet, callUsbSet: callUsbSet,
 	callUsbNetList: callUsbNetList, callUsbNetAdd: callUsbNetAdd,
 	carrierName: carrierName, qLabel: qLabel, qCol: qCol, qScore: qScore,
-	esc: esc, fmtBytes: fmtBytes, fmtTrafficBytes: fmtTrafficBytes, fmtRate: fmtRate, fmtUptime: fmtUptime, PLMN_CN: PLMN_CN,
+	esc: esc, fmtBatteryCurrent: fmtBatteryCurrent, fmtBytes: fmtBytes, fmtTrafficBytes: fmtTrafficBytes, fmtRate: fmtRate, fmtUptime: fmtUptime, PLMN_CN: PLMN_CN,
 	uiLanguage: uiLanguage, translate: translate, localize: localize, localizeMenu: localizeMenu,
 	injectCss: injectCss, v: v, set: set, spark: spark, neighborRows: neighborRows,
 	toast: toast, busy: busy, confirmBox: confirmBox, alertBox: alertBox, choiceBox: choiceBox,

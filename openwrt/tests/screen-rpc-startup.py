@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-source = Path(__file__).resolve().parents[1] / 'overlay/usr/libexec/e5-voice-audio'
+source = Path(__file__).resolve().parents[1] / 'tests/reference/voice-audio.py'
 loader = importlib.machinery.SourceFileLoader('voice_startup', str(source))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 voice = importlib.util.module_from_spec(spec)

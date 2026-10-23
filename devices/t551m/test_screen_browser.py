@@ -241,6 +241,30 @@ def main():
             assert page.evaluate('page')==index
         # Physical arrows and visual ordering follow the customized navigation.
         page.evaluate('showPage(5)')
+        # Two adjacent viewport-sized layers cover the screen without blending
+        # text. The full page strip must never move through intermediate pages.
+        frames = page.evaluate('''async () => {
+            const frames = [];
+            for (const target of [0, 8, 3, 1, 7, 5]) {
+                showPage(target);
+                for (let i=0; i<3; i++) {
+                    await new Promise(requestAnimationFrame);
+                    const visible = pages.filter(n => getComputedStyle(n).visibility === 'visible');
+                    const rects = visible.map(n => n.getBoundingClientRect()).sort((a,b)=>a.left-b.left);
+                    const covered = rects[0].left <= 1 && rects.at(-1).right >= innerWidth-1 &&
+                        (rects.length===1 || Math.abs(rects[0].right-rects[1].left) <= 1);
+                    frames.push({count:visible.length, current:visible.includes(pages[target]),
+                        painted:visible.some(n => +getComputedStyle(n).opacity >= .99),
+                        covered,
+                        transform:getComputedStyle($('pages')).transform});
+                }
+            }
+            return frames;
+        }''')
+        assert all(1<=f['count']<=2 and f['current'] and f['painted'] and f['covered'] and f['transform']=='none' for f in frames),frames
+        page.wait_for_timeout(260)
+        assert page.locator('.page.is-outgoing,.page.is-entering').count()==0
+        page.evaluate('showPage(5)')
         for key, target in [('ArrowRight',6),('ArrowRight',2),('ArrowLeft',6)]:
             page.keyboard.press(key); page.wait_for_timeout(300)
             assert page.evaluate('page')==target
@@ -304,20 +328,29 @@ def main():
             for opacity in [0,35,70,100]:
                 appearance={'ui_theme':theme,'ui_opacity':opacity,'desktop_wallpaper':'custom','lock_wallpaper':'custom'}
                 fixtures['/api/status']['screen'].update(appearance)
-                page.evaluate('(s)=>{Object.assign(last.screen,s);T551M.status(last)}',appearance)
+                # Apply and read styles in one browser task: a status response
+                # already in flight may otherwise restore the preceding fixture
+                # between separate evaluate() calls.
+                snapshot=page.evaluate('''(s)=>{
+                    Object.assign(last.screen,s);T551M.status(last);
+                    const read=e=>({bg:getComputedStyle(e).backgroundColor,opacity:getComputedStyle(e).opacity,color:getComputedStyle(e).color});
+                    return {styles:['.card:not(.rates)','.strow','.mobile-grid button','#lock-summary'].map(selector=>({selector,...read(document.querySelector(selector))})),
+                        foreground:getComputedStyle(document.body).color,
+                        sim:read(document.querySelector('#bar-sim')),
+                        qr:getComputedStyle(document.querySelector('#hs-qr')).backgroundColor};
+                }''',appearance)
                 expected=f'rgb({rgb})' if opacity==100 else f'rgba({rgb}, {opacity/100:g})'
-                for selector in ['.card:not(.rates)','.strow','.mobile-grid button','#lock-summary']:
-                    style=page.locator(selector).first.evaluate('(e)=>({bg:getComputedStyle(e).backgroundColor,opacity:getComputedStyle(e).opacity,color:getComputedStyle(e).color})')
-                    assert style['bg']==expected,(theme,opacity,selector,style)
+                for style in snapshot['styles']:
+                    assert style['bg']==expected,(theme,opacity,style)
                     assert style['opacity']=='1'
-                assert page.locator('body').evaluate('(e)=>getComputedStyle(e).color')==foreground
-                sim=page.locator('#bar-sim').evaluate('(e)=>({fg:getComputedStyle(e).color,bg:getComputedStyle(e).backgroundColor})')
-                assert sim['bg']==foreground and sim['fg']!=sim['bg'],(theme,sim)
-                assert page.locator('#hs-qr').evaluate('(e)=>getComputedStyle(e).backgroundColor')=='rgb(255, 255, 255)'
+                assert snapshot['foreground']==foreground
+                sim=snapshot['sim']
+                assert sim['bg']==foreground and sim['color']!=sim['bg'],(theme,sim)
+                assert snapshot['qr']=='rgb(255, 255, 255)'
         appearance={'ui_theme':'dark','ui_opacity':70,'desktop_wallpaper':'default','lock_wallpaper':'default'}
         fixtures['/api/status']['screen'].update(appearance)
-        page.evaluate('(s)=>{Object.assign(last.screen,s);T551M.status(last)}',appearance)
-        assert page.locator('.card:not(.rates)').first.evaluate('(e)=>getComputedStyle(e).backgroundColor')=='rgb(24, 33, 46)'
+        bg=page.evaluate('(s)=>{Object.assign(last.screen,s);T551M.status(last);return getComputedStyle(document.querySelector(".card:not(.rates)")).backgroundColor}',appearance)
+        assert bg=='rgb(24, 33, 46)'
         # Wake remains locked; dark touches and immediate wake noise are blocked.
         page.evaluate('setBlank(true)')
         swipe()

@@ -20,6 +20,8 @@ def sources(version):
              TOP / 'openwrt/tests/voice-recovery.py', TOP / 'openwrt/tests/voice-hangup.py',
              TOP / 'openwrt/tests/voice-accept.py', TOP / 'openwrt/tests/data-priority-hook.py',
              TOP / 'openwrt/tests/modem-mobility.py',
+             TOP / 'openwrt/tests/modem-port-set-ready.py',
+             TOP / 'openwrt/tests/c5greg-empty-nssai.py',
              TOP / 'openwrt/tests/modem-data-ports.py',
              TOP / 'openwrt/tests/modem-data-port-rules.py',
              TOP / 'openwrt/tests/sim-radio-parser.py',

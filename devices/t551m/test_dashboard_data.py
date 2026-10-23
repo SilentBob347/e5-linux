@@ -157,37 +157,22 @@ esac
                 self.assertEqual(json.loads(r.stdout),expected,r.stderr)
 
     def test_wan_block_and_real_counter_files_follow_changed_apn_and_cid_port(self):
-        source=(LIB/'dashboard-info').read_text()
-        json_helpers=source[source.index('n_or_null() {'):source.index('# ------------------------------------------------------------- temperature')]
-        jval=source[source.index('jval() {'):source.index('# ----------------------------------------------------------------- WAN')]
-        wan=source[source.index('cfg() {'):source.index('# ------------------------------------------------------------------- system')]
-        counter=source[source.index('net_obj() {'):source.index('# ------------------------------------------------------------------- Wi-Fi')]
-        counter=counter.replace('/sys/class/net',str(self.root/'net'))
-        for device,rx in (('sipa_eth0',915819),('sipa_eth3',6717270)):
-            d=self.root/'net'/device;(d/'statistics').mkdir(parents=True)
-            (d/'statistics/rx_bytes').write_text(str(rx));(d/'statistics/tx_bytes').write_text('100');(d/'operstate').write_text('up' if device.endswith('3') else 'down')
-        emit=source[source.index('MOBILE_NET=$(net_obj'):source.index('printf \'"wifi":')]
-        emit='\nprintf \'{\'\n'+emit+'\nprintf \'"_end":true}\''
-        code=json_helpers+'\n'+jval+'\n'+wan+'\nrd() { cat "$1"; }\n'+counter+emit
-        for shell in self.shells:
-            first=self.run_shell(shell,code);self.assertEqual(first.returncode,0,first.stderr)
-            data=json.loads(first.stdout)
-            self.assertEqual(data['wan']['apn'],'CMIOT5G')
-            self.assertEqual((data['wan']['device'],data['wan']['up']),('sipa_eth3',1))
-            self.assertEqual(data['net']['mobile'],{'rx':6717270,'tx':100,'up':1})
-            (self.root/'net/sipa_eth3/statistics/rx_bytes').write_text('6746383')
-            second=json.loads(self.run_shell(shell,code).stdout)
-            self.assertEqual(second['net']['mobile']['rx']-data['net']['mobile']['rx'],29113)
-            (self.root/'net/sipa_eth3/statistics/rx_bytes').write_text('6717270')
-            compact={'up':True,'l3_device':'sipa_eth3','proto':'modemmanager','inactive':{'up':False,'l3_device':'sipa_eth0','proto':'old'}}
-            nested=json.loads(self.run_shell(shell,code,WAN=json.dumps(compact)).stdout)
-            self.assertEqual((nested['wan']['up'],nested['wan']['proto'],nested['wan']['device']),(1,'modemmanager','sipa_eth3'))
+        snapshot=self.snapshot_fixture()
+        snapshot.write('sys/class/net/sipa_eth3/statistics/rx_bytes','6717270')
+        data=snapshot.run()
+        self.assertEqual(data['wan']['apn'],'CMIOT5G')
+        self.assertEqual((data['wan']['device'],data['wan']['up']),('sipa_eth3',1))
+        snapshot.write('sys/class/net/sipa_eth3/statistics/rx_bytes','6746383')
+        second=snapshot.run()
+        self.assertEqual(second['net']['mobile']['rx']-data['net']['mobile']['rx'],29113)
+        snapshot.responses['network.interface.wan.status']['inactive']={'up':False,'l3_device':'sipa_eth0','proto':'old'}
+        self.assertEqual(snapshot.run()['wan']['device'],'sipa_eth3')
 
     def test_shared_helper_is_packaged_and_collectors_keep_existing_at_ownership(self):
         make=(LIB.parents[3]/'Makefile').read_text()
         self.assertIn('$(CP) ./root/. $(1)/',make)
-        for name in ('dashboard-info','cell'):
-            source=(LIB/name).read_text();self.assertIn('. "$DASH_NET_BIN/dashboard-network.sh"',source)
+        self.assertIn('. "$DASH_NET_BIN/dashboard-network.sh"',(LIB/'cell').read_text())
+        self.assertIn("'e5status'",(LIB/'dashboard-info').read_text())
         self.assertNotIn("at 'AT+CGEQOSRDP=1'",(LIB/'cell').read_text())
         self.assertNotIn('AT+',(LIB/'dashboard-info').read_text())
         if (TOP/'tools/build-openwrt-tf-magisk.sh').exists():
@@ -195,108 +180,42 @@ esac
                 self.assertIn('./usr/libexec/unisoc-modem/dashboard-network.sh ',(TOP/'tools'/name).read_text())
 
     def snapshot_fixture(self):
-        """Run the entire collector with private proc/sys files and fake RPCs."""
-        source=(LIB/'dashboard-info').read_text()
-        source=re.sub(r'/sys/|/proc/|/run/|/tmp/dhcp[.]leases|/etc/openwrt_release|/etc/mu300/vpn[.]conf',lambda m:str(self.root)+m[0],source)
-        # BusyBox standalone ash can prefer its ip/date applets over PATH.
-        # Absolute fixture paths keep all three shells fully isolated.
-        for command in ('t2 ip ', 'if ip ', '|| ip '):
-            source=source.replace(command,command[:-3]+shlex.quote(str(self.bin/'ip'))+' ')
-        source=source.replace('$(date ', '$('+shlex.quote(str(self.bin/'date'))+' ')
-        path=self.root/'dashboard-info';path.write_text(source)
-        shutil.copyfile(LIB/'dashboard-network.sh',self.bin/'dashboard-network.sh')
-        self.stub('boot-status','boot_status() { printf \'{"next":"android"}\'; }\n')
-        self.stub('hotspot', '''#!/bin/sh
-printf '%s\n' available 1 enabled 1 pending 0 up 1 section default_radio0 radio radio0 device wlan0 ssid FixtureWiFi channel 36 band 5g htmode HE80 country CN enc psk2 hidden 0
-''')
-        self.stub('ubus', '''#!/bin/sh
-case "$*" in
- *network.interface.wan6*) printf '%s\n' '{"up":true,"dns-server":["2001:4860:4860::8888"]}';;
- *network.interface.wan*) printf '%s\n' "$LATEST_WAN";;
- *'system board') printf '{\n"model": "Fixture board"\n}\n';;
- *get_status) printf '%s\n' '{"status":"ENABLED"}';;
- *) exit 1;;
-esac
-''')
-        self.stub('uci', '''#!/bin/sh
-printf '%s\n' "$*" >> "$FIXTURE_ROOT/uci-calls"
-case "$*" in
- *'show wireless') cat <<'EOF'
-wireless.default_radio0.mode='ap'
-wireless.default_radio0.device='radio0'
-wireless.default_radio0.ssid='FixtureWiFi'
-wireless.default_radio0.encryption='psk2'
-wireless.default_radio0.hidden='0'
-wireless.radio0.channel='36'
-wireless.radio0.band='5g'
-wireless.radio0.htmode='HE80'
-wireless.radio0.country='CN'
-EOF
- ;;
- *unisoc_modem.main.data_interface) echo wan;;
- *unisoc_modem.main.data_device) echo sipa_eth0;;
- *hostname) echo fixture-router;;
- *) exit 1;;
-esac
-''')
-        self.stub('iw', '#!/bin/sh\nexit 0\n')
-        self.stub('ip', '''#!/bin/sh
-case "$*" in
- '-4 addr show br-lan') echo 'inet 192.168.1.1/24';;
- '-6 addr show sipa_eth3') echo 'inet6 2001:db8::2/64';;
- *) exit 1;;
-esac
-''')
-        self.stub('date','#!/bin/sh\necho 1000\n')
-        for name in ('mu300-at','t551m-at','at','ifup','ifdown'):
-            self.stub(name,'#!/bin/sh\necho forbidden >> "$FIXTURE_ROOT/forbidden"\nexit 99\n')
-        files={'proc/uptime':'123.45 5\n','proc/stat':'cpu 10 0 5 85 0 0 0 0\n',
-               'proc/cpuinfo':'processor : 0\nprocessor : 1\n','proc/meminfo':'MemTotal: 1024 kB\nMemAvailable: 512 kB\n',
-               'proc/sys/net/netfilter/nf_conntrack_count':'7\n','sys/module/sipc_wwan/parameters/card':'0\n',
-               'sys/class/power_supply/battery/capacity':'73\n','sys/class/power_supply/battery/present':'1\n',
-               'sys/class/power_supply/battery/status':'Charging\n','sys/class/power_supply/battery/voltage_now':'4100000\n',
-               'sys/class/power_supply/battery/current_now':'-200000\n','sys/class/power_supply/usb/online':'1\n',
-               'sys/class/thermal/thermal_zone0/type':'soc-thmzone\n','sys/class/thermal/thermal_zone0/temp':'42000\n',
-               'etc/openwrt_release':"DISTRIB_DESCRIPTION='Fixture OpenWrt'\n",'tmp/dhcp.leases':'2000 aa:bb:cc:dd:ee:ff 192.168.1.2 fixture-client *\n',
-               'run/unisoc-modem-traffic/view.json':'{"fixture":123}\n'}
-        for device in ('sipa_eth0','sipa_eth3','br-lan','wlan0','usb0'):
-            for name,value in (('rx_bytes','101'),('tx_bytes','202')):
-                files[f'sys/class/net/{device}/statistics/{name}']=value+'\n'
-            files[f'sys/class/net/{device}/operstate']='up\n'
-        for name,value in files.items():
-            f=self.root/name;f.parent.mkdir(parents=True,exist_ok=True);f.write_text(value)
-        return path
+        import sys
+        sys.path.insert(0,str(TOP/'openwrt/tests'))
+        from native_dashboard_fixture import Snapshot
+        snapshot=Snapshot(self.root)
+        for path,value in {
+            'proc/sys/net/netfilter/nf_conntrack_count':'7',
+            'sys/class/power_supply/battery/capacity':'73',
+            'sys/class/power_supply/battery/status':'Charging',
+            'sys/class/power_supply/battery/voltage_now':'4100000',
+            'sys/class/thermal/thermal_zone0/type':'soc-thmzone',
+            'sys/class/thermal/thermal_zone0/temp':'42000',
+            'run/unisoc-modem-traffic/view.json':'{"fixture":123}',
+            'tmp/dhcp.leases':'1000 aa:bb:cc:dd:ee:ff 192.168.1.2 fixture-client *'}.items():
+            snapshot.write(path,value)
+        return snapshot
 
     def test_full_snapshot_preserves_unrelated_fields_when_apn_fails(self):
-        path=self.snapshot_fixture()
-        for shell in self.shells:
-            snapshots=[]
-            for state in (self.state,{'ok':0,'error':'apn_identity'}):
-                r=self.run_shell(shell,'. '+shlex.quote(str(path)),FIXTURE_ROOT=self.root,MU300_DASH_BIN=self.bin,APN_STATE=json.dumps(state))
-                self.assertEqual(r.returncode,0,r.stderr)
-                snapshots.append(json.loads(r.stdout))
-            good,bad=snapshots
-            self.assertEqual(good['wan']['apn'],'CMIOT5G');self.assertIsNone(bad['wan']['apn'])
-            for field in ('cpu','mem','temps','power','wifi','lan','net','boot','traffic','vpn','conns'):
-                self.assertEqual(good[field],bad[field],field)
-            self.assertEqual(good['cpu']['total'],100);self.assertEqual(good['mem']['avail_kb'],512)
-            self.assertEqual(good['power']['capacity'],73);self.assertEqual(good['temps']['soc'],42)
-            self.assertEqual(good['wifi']['ssid'],'FixtureWiFi');self.assertEqual(good['wifi']['width'],'80 MHz')
-            self.assertEqual(good['lan']['ip'],'192.168.1.1');self.assertEqual(good['lan']['list'][0]['host'],'fixture-client')
-            self.assertEqual(good['traffic'],{'fixture':123});self.assertEqual(good['conns'],7)
-            self.assertEqual(good['wan']['ip6'],'2001:db8::2')
-            self.assertFalse((self.root/'forbidden').exists())
-        self.assertTrue(all(line.startswith('-q get ') or line=='-q show wireless' for line in (self.root/'uci-calls').read_text().splitlines()))
+        snapshot=self.snapshot_fixture();good=snapshot.run()
+        (snapshot.config/'network').write_text("config interface 'wan'\n option proto 'unsupported'\n option password 'PRIVATE'\n")
+        bad=snapshot.run()
+        self.assertEqual(good['wan']['apn'],'CMIOT5G');self.assertIsNone(bad['wan']['apn'])
+        for field in ('cpu','mem','temps','power','wifi','lan','net','boot','traffic','vpn','conns'):
+            self.assertEqual(good[field],bad[field],field)
+        self.assertEqual(good['cpu']['total'],100);self.assertEqual(good['power']['capacity'],73)
+        self.assertEqual(good['wifi']['ssid'],'FixtureWiFi');self.assertEqual(good['wifi']['width'],'80 MHz')
+        self.assertEqual(good['lan']['list'][0]['host'],'fixture-client')
+        self.assertEqual(good['traffic'],{'fixture':123});self.assertEqual(good['conns'],7)
+        self.assertNotIn('PRIVATE',json.dumps(bad))
 
     def test_stuck_apn_is_bounded_and_does_not_destroy_snapshot(self):
-        path=self.snapshot_fixture()
+        snapshot=self.snapshot_fixture()
         self.stub('apn','#!/bin/sh\nexec sleep 30\n')
-        started=time.monotonic()
-        r=self.run_shell(['sh'],'. '+shlex.quote(str(path)),FIXTURE_ROOT=self.root,MU300_DASH_BIN=self.bin)
-        elapsed=time.monotonic()-started
-        self.assertEqual(r.returncode,0,r.stderr);data=json.loads(r.stdout)
-        self.assertIsNone(data['wan']['apn']);self.assertEqual(data['wifi']['ssid'],'FixtureWiFi')
-        self.assertLess(elapsed,8,'APN status exceeded the existing 3-second deadline')
-
+        started=time.monotonic();data=snapshot.run()
+        self.assertLess(time.monotonic()-started,8)
+        self.assertEqual(data['cpu']['total'],100)
+        self.assertEqual(data['wan']['apn'],'CMIOT5G')
+        self.assertFalse((self.root/'forbidden').exists())
 
 if __name__=='__main__':unittest.main()

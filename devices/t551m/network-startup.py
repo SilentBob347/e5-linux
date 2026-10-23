@@ -225,9 +225,98 @@ APN_SELECTION = '''\t# unisoc-apn-selection: shared by E5, T551M and M8 on every
 '''
 
 
+VENDOR_BOOT = '''
+# e5-early-vendor: normal boots overlap CP loading with later init services.
+# Charge-only boots still wait for S14 and the existing power-key policy.
+boot() {
+    touch /run/e5-vendor-deferred
+    local policy
+    policy=$(/usr/bin/python3 /usr/libexec/e5-charge-mode --radio-boot-policy) || return 1
+    case "$policy" in
+        early) rm -f /run/e5-vendor-deferred; start ;;
+        defer) return 0 ;;
+        *) logger -t e5-vendor 'Invalid charge-only boot policy'; return 1 ;;
+    esac
+}
+'''
+
+VENDOR_PARTITION_READ = '''  [ -r "$u" ] || continue
+  d=${u%/uevent}; d=${d##*/}
+  n=
+  while IFS='=' read -r k v; do [ "$k" != PARTNAME ] || n=$v; done < "$u"'''
+
+VENDOR_LOG_WAIT = '''# e5-log-socket-ready: chroot setup overlaps logdw; wait on readiness.
+i=0
+until [ -S /dev/socket/logdw ]; do
+    i=$((i + 1))
+    [ "$i" -lt 100 ] || { echo "Android log socket unavailable" >&2; exit 4; }
+    /opt/e5/bin/busybox usleep 10000
+done
+'''
+
+
+def patch_vendor_startup(root):
+    """Preserve each model's NV/slot setup, moving only the normal boot entry."""
+    service = root / 'etc/init.d/e5-vendor'
+    if not service.exists():
+        return
+    text = service.read_text()
+    text, count = re.subn(r'^START=(?:20|09)$', 'START=09', text, flags=re.M)
+    if count != 1:
+        raise ValueError('Unexpected vendor startup priority')
+    # The target's /bin/sleep rejects fractions. A failed sleep exhausted the
+    # preparation gate instantly and made procd retry the NV daemon 5 s later.
+    text = text.replace('sleep 0.1; done; exec /opt/e5/android-run cp_diskserver',
+                        '/opt/e5/bin/busybox usleep 100000; done; exec /opt/e5/android-run cp_diskserver')
+    if '# e5-early-vendor:' not in text:
+        if re.search(r'^boot\(\)', text, flags=re.M):
+            raise ValueError('Unexpected vendor boot gate')
+        text += VENDOR_BOOT
+    # Validate owned entries before changing the service or links.
+    for name in ('S20e5-vendor', 'S09e5-vendor'):
+        link = root / 'etc/rc.d' / name
+        if link.is_symlink():
+            if link.readlink().as_posix() != '../init.d/e5-vendor':
+                raise ValueError('Foreign vendor startup link: ' + str(link))
+        elif link.exists():
+            raise ValueError('Occupied vendor startup link: ' + str(link))
+    vendor = root / 'opt/e5/vendor-start.sh'
+    if vendor.exists():
+        body = vendor.read_text()
+        old = '  d=$(basename "$(dirname "$u")"); n=$(sed -n \'s/^PARTNAME=//p\' "$u")'
+        if old in body:
+            body = body.replace(old, VENDOR_PARTITION_READ)
+        elif VENDOR_PARTITION_READ not in body:
+            raise ValueError('Unexpected vendor partition enumeration')
+        if '# e5-log-socket-ready:' not in body:
+            if body.count('  sleep 1\n') != 1:
+                raise ValueError('Unexpected vendor log socket setup')
+            body = body.replace('  sleep 1\n', '')
+            anchor = ('touch /run/e5-vendor-prepared\n' if 'touch /run/e5-vendor-prepared\n' in body
+                      else 'echo "stage=exec"\n')
+            if body.count(anchor) != 1:
+                raise ValueError('Unexpected vendor preparation boundary')
+            body = body.replace(anchor, VENDOR_LOG_WAIT + anchor)
+        body = body.replace('    sleep 0.01\n', '    /opt/e5/bin/busybox usleep 10000\n')
+        vendor.write_text(body)
+    service.write_text(text)
+    old = root / 'etc/rc.d/S20e5-vendor'
+    old.unlink(missing_ok=True)
+    link = root / 'etc/rc.d/S09e5-vendor'
+    link.parent.mkdir(parents=True, exist_ok=True)
+    if not link.is_symlink():
+        link.symlink_to('../init.d/e5-vendor')
+
+
 def patch_root(root, profile='t551m'):
     if profile not in ('t551m', 'e5', 'm8', 't512n', 'yuanhang41s', 'k1'):
         raise ValueError('Unknown device profile: ' + profile)
+    patch_vendor_startup(root)
+    # Also install through the on-device update hook, after package defaults.
+    boot_wait = root / 'lib/preinit/01_e5_boot_wait'
+    boot_wait.parent.mkdir(parents=True, exist_ok=True)
+    boot_wait.write_text('# Keep keyboard/button failsafe available for one second.\n'
+                         'fs_failsafe_wait_timeout=1\n')
     for asset in ('usr/libexec/e5-network-recovery', 'etc/init.d/e5-network-recovery'):
         source = Path(__file__).resolve().parents[2] / 'openwrt/overlay' / asset
         target = root / asset
@@ -311,12 +400,13 @@ def patch_root(root, profile='t551m'):
     loader = root / 'etc/init.d/e5-sipc-wwan'
     if loader.exists():
         text = loader.read_text()
-        if 'tx_gap_ms=100' not in text:
-            old = 'insmod $M/sipc_wwan.ko card=$C'
-            if text.count(old) != 1:
-                raise ValueError('Unexpected SIPC loader')
-            text = text.replace(old, old + ' tx_gap_ms=100')
-            text = text.replace('insmod $M/sipc_wwan.ko;', 'insmod $M/sipc_wwan.ko tx_gap_ms=100;')
+        # Migrate already patched roots as well as raw package loaders.
+        text = re.sub(r' tx_gap_ms=\d+', '', text)
+        old = 'insmod $M/sipc_wwan.ko card=$C'
+        if text.count(old) != 1:
+            raise ValueError('Unexpected SIPC loader')
+        text = text.replace(old, old + ' tx_gap_ms=50')
+        text = text.replace('insmod $M/sipc_wwan.ko;', 'insmod $M/sipc_wwan.ko tx_gap_ms=50;')
         if '# unisoc-port-discovery:' not in text:
             anchor = '\t\techo "sipc_wwan loaded, SIM card $C"'
             if text.count(anchor) != 1:

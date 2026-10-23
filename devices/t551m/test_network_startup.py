@@ -21,6 +21,15 @@ LOADER = (HERE.parents[1] / 'openwrt/overlay/etc/init.d/e5-sipc-wwan').read_text
 
 
 class Startup(unittest.TestCase):
+    def test_direct_overlay_already_preserves_pacing_and_immediate_port_report(self):
+        # Maintenance and common runtime staging also copy this file directly,
+        # before APK postinstall/network-startup gets a chance to patch it.
+        self.assertIn('card=$C tx_gap_ms=50', LOADER)
+        self.assertIn('[ $C = 0 ] && insmod $M/sipc_wwan.ko tx_gap_ms=50;', LOADER)
+        report=LOADER.index('/usr/libexec/e5-mm-report-ports ] ||')
+        self.assertGreater(report, LOADER.index('insmod $M/sipc_wwan.ko card=$C'))
+        self.assertLess(report, LOADER.index('echo "sipc_wwan loaded'))
+
     def test_data_disconnect_keeps_unisoc_rf_unless_explicitly_overridden(self):
         text=(self.root/'lib/netifd/proto/modemmanager.sh').read_text()
         start=text.index('\t# unisoc-data-rf-independent:')
@@ -52,11 +61,22 @@ class Startup(unittest.TestCase):
         patch_root(self.root)
         self.assertEqual(before, {p: p.read_bytes() for p in files})
         text = (self.root / 'etc/init.d/e5-sipc-wwan').read_text()
-        self.assertIn('card=$C tx_gap_ms=100', text)
+        self.assertIn('card=$C tx_gap_ms=50', text)
         self.assertIn('e5-sim-probe /dev/stty_nr1 "$C"', text)
-        self.assertIn('[ $C = 0 ] && insmod $M/sipc_wwan.ko tx_gap_ms=100;', text)
+        self.assertIn('[ $C = 0 ] && insmod $M/sipc_wwan.ko tx_gap_ms=50;', text)
         self.assertIn("o.value('keep'", (self.root / 'www/luci-static/resources/protocol/modemmanager.js').read_text())
         subprocess.run(['busybox', 'sh', '-n', str(self.root / 'etc/init.d/e5-sipc-wwan')], check=True)
+
+    def test_upgrade_old_pacing_and_preserve_recovery_entry(self):
+        loader = self.root / 'etc/init.d/e5-sipc-wwan'
+        for gap in (100, 300):
+            loader.write_text(LOADER.replace('tx_gap_ms=50', f'tx_gap_ms={gap}'))
+            patch_root(self.root)
+            self.assertEqual(loader.read_text().count('tx_gap_ms=50'), 2)
+            self.assertNotIn(f'tx_gap_ms={gap}', loader.read_text())
+        config = (self.root / 'lib/preinit/01_e5_boot_wait').read_text()
+        self.assertIn('fs_failsafe_wait_timeout=1', config)
+        self.assertNotIn('pi_preinit_no_failsafe=', config)
 
     def test_every_profile_stages_one_identical_event_recovery(self):
         expected = (HERE.parents[1] / 'openwrt/overlay/usr/libexec/e5-network-recovery').read_bytes().replace(b'\r\n', b'\n')

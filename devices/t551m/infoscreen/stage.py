@@ -217,12 +217,11 @@ def stage(root):
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(content.replace('\r\n', '\n').encode())
         dest.chmod(0o644)
-    for source, name in [('screen-power.py', 'usr/libexec/t551m-screen-power'),
+    for source, name in [
                          ('base/session', 'usr/libexec/e5-infoscreen/session'),
                          ('base/update', 'usr/libexec/e5-infoscreen/update'),
                          ('base/service', 'etc/init.d/e5-infoscreen'),
                          ('base/plugin', 'usr/libexec/e5-infoscreen/plugin'),
-                         ('sim-status.py', 'usr/libexec/t551m-sim-status'),
                          ('sim-service', 'etc/init.d/t551m-sim-status'),
                          ('details-radio.py', 'usr/libexec/t551m-screen-details'),
                          ('power-service', 'etc/init.d/t551m-screen-power'),
@@ -243,12 +242,10 @@ def stage(root):
         'usr/libexec/e5-volume': repo / 'openwrt/overlay/usr/libexec/e5-volume',
         'usr/libexec/e5-call-volume': repo / 'openwrt/overlay/usr/libexec/e5-call-volume',
         'usr/lib/e5/e5_call_volume.py': repo / 'openwrt/overlay/usr/lib/e5/e5_call_volume.py',
-        'usr/lib/e5/e5_call_events.py': repo / 'openwrt/overlay/usr/lib/e5/e5_call_events.py',
-        'usr/lib/e5/e5_screen_rpc.py': repo / 'openwrt/overlay/usr/lib/e5/e5_screen_rpc.py',
-        'usr/lib/e5/e5_power_events.py': repo / 'openwrt/overlay/usr/lib/e5/e5_power_events.py',
         'usr/lib/e5/e5_sounds.py': repo / 'openwrt/overlay/usr/lib/e5/e5_sounds.py',
         'usr/libexec/e5-notification-sound': repo / 'openwrt/overlay/usr/libexec/e5-notification-sound',
         'usr/libexec/e5-sms-notify': repo / 'openwrt/overlay/usr/libexec/e5-sms-notify',
+        'etc/init.d/e5-voice-audio': repo / 'openwrt/overlay/etc/init.d/e5-voice-audio',
         'etc/init.d/e5-hfp': repo / 'openwrt/overlay/etc/init.d/e5-hfp',
         'etc/sysctl.d/10-e5-printk.conf': repo / 'openwrt/overlay/etc/sysctl.d/10-e5-printk.conf',
         'opt/e5/e5-call-audio.py': repo / 'rootfs/overlay/opt/e5/e5-call-audio.py',
@@ -258,6 +255,18 @@ def stage(root):
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(source.read_bytes().replace(b'\r\n', b'\n'))
         target.chmod(0o644 if name.startswith('etc/sysctl.d/') else 0o755)
+    for name in ('e5_call_events.py', 'e5_screen_rpc.py', 'e5_power_events.py'):
+        (root / 'usr/lib/e5' / name).unlink(missing_ok=True)
+    # All screen-capable profiles and shared screen updates use these same ELFs.
+    native = __import__('runpy').run_path(str(repo / 'devices/common/build-screen-native.py'))
+    for name, binary in native['build']().items():
+        target = root / 'usr/libexec' / name
+        target.write_bytes(binary.read_bytes())
+        target.chmod(0o755)
+    manifest = root / 'usr/share/e5/voice-routes.json'
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_bytes(native['route_manifest']())
+    manifest.chmod(0o644)
     # Repair every built-in asset during shared updates as well as fresh
     # builds. WAV payloads are binary: newline conversion shifts PCM samples.
     for name in ('ding.wav', 'call.wav', 'beep.wav'):

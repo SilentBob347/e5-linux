@@ -9,7 +9,8 @@ for f in regulatory.db regulatory.db.p7s; do
     [ -d "$s" ] || continue
     echo 1 > "$s/loading" && cat "$src" > "$s/data" && echo 0 > "$s/loading" && echo "fed $f"
 done
-iw reg reload 2>/dev/null || true
-sleep 1
-iw reg set CN 2>/dev/null || true
+# Both regulatory requests are handed off above before reload. The kernel
+# owns completion; a fixed sleep neither checks it nor improves validation.
+iw reg reload || { echo 'regulatory database reload failed' >&2; exit 1; }
+iw reg set CN || { echo 'regulatory country selection failed' >&2; exit 1; }
 iw reg get 2>/dev/null | head -3

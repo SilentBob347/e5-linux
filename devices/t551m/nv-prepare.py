@@ -72,7 +72,7 @@ def reconcile_pair(primary, backup, attached=()):
         raise RuntimeError('Both working NV copies invalid: ' + '; '.join(errors.values()))
     source = backup if primary in errors else primary
     target = primary if source == backup else backup
-    if target not in errors and digest(source) == digest(target):
+    if target not in errors and same_contents(source, target):
         return False
     if source in attached or target in attached:
         raise RuntimeError('Detach NV loops before reconciling: ' + target.name)
@@ -80,6 +80,19 @@ def reconcile_pair(primary, backup, attached=()):
     print('Reconciled isolated ' + target.name + ' from validated ' + source.name,
           '(' + errors.get(target, 'different valid contents') + ')')
     return True
+
+
+def same_contents(left, right):
+    # Equality needs a full byte comparison, not two SHA-256 computations.
+    # Include headers, padding and unused tails: matching NV checksums alone
+    # did not prevent the historical divergent-tail incremental-write bug.
+    with left.open('rb') as a, right.open('rb') as b:
+        while True:
+            x, y = a.read(1024 * 1024), b.read(1024 * 1024)
+            if x != y:
+                return False
+            if not x:
+                return True
 
 
 def digest(path):
@@ -154,11 +167,23 @@ def recover_existing_pairs(store, original, attached, refresh=False):
     newly changed Android partition as a recovery source. Explicit refresh
     keeps its existing import path.
     """
+    verified = set()
     if refresh:
-        return
+        return verified
     for primary, backup in PAIRS:
         if (primary in original and backup in original and
                 (store / primary).is_file() and (store / backup).is_file()):
+            reconcile_pair(store / primary, store / backup, attached)
+            verified.add((primary, backup))
+    return verified
+
+
+def finish_pairs(store, attached, verified, imported):
+    # Vendor processes are still stopped. Reuse only this invocation's
+    # completed pair checks, never a persistent/mtime-based validation cache.
+    # An imported member invalidates the pair and requires reconciliation.
+    for primary, backup in PAIRS:
+        if (primary, backup) not in verified or primary in imported or backup in imported:
             reconcile_pair(store / primary, store / backup, attached)
 
 
@@ -191,7 +216,8 @@ def main():
     STORE.mkdir(mode=0o700, exist_ok=True)
     manifest = STORE / 'factory-sha256.json'
     original = json.loads(manifest.read_text()) if manifest.exists() else {}
-    recover_existing_pairs(STORE, original, attached_loops(), args.refresh)
+    verified = recover_existing_pairs(STORE, original, attached_loops(), args.refresh)
+    imported = set()
     boot_source = {}
     for name, dev in devices.items():
         current = digest(dev)
@@ -212,13 +238,13 @@ def main():
             if name.startswith(('nr_fixnv', 'nr_runtimenv')):
                 validate_nv(temporary)
             temporary.replace(target)
+            imported.add(name)
         target.chmod(0o660)
         os.chown(target, 1000, 1000)
         if not retained:
             original[name] = current
     attached = attached_loops()
-    for primary, backup in PAIRS:
-        reconcile_pair(STORE / primary, STORE / backup, attached)
+    finish_pairs(STORE, attached, verified, imported)
     manifest.write_text(json.dumps(original, indent=2) + '\n')
     manifest.chmod(0o600)
     Path('/dev/block/by-name').mkdir(parents=True, exist_ok=True)

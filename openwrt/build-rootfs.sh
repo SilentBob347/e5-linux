@@ -93,6 +93,7 @@ if [ "$FEATURES" = 1 ]; then
     [ -n "${E5_ROOT_MODULES:-}" ] && [ "${E5_ROOT_MODULES_ONLY:-0}" = 1 ] || {
         echo 'E5_FEATURES=1 requires the matching devices/e5 mainline module archive' >&2; exit 1; }
     python3 "$TOP/devices/t551m/build-at-client.py"
+    python3 "$TOP/devices/t551m/build-at-owner.py"
 fi
 DEFAULT_IMAGE_MB=1024
 [ "$CONTAINERS" != 1 ] || DEFAULT_IMAGE_MB=2048
@@ -314,7 +315,7 @@ apk add iwinfo iw-full ip-full bash mount-utils luci-proto-modemmanager \
 # init script (which forbids loading the modules a connecting device needs)
 apk add pulseaudio-daemon-avahi pulseaudio-tools >/dev/null
 # Reuse the tested Debian hostless FE_ST_VOICE backend for cellular audio.
-apk add python3 >/dev/null
+apk add python3 glib2 libjson-c5 alsa-lib rpcd-mod-ucode ucode-mod-rtnl ucode-mod-nl80211 >/dev/null
 if [ "$CONTAINERS" = 1 ]; then
     # Do not run dockerd post-install scripts inside the build container.
     apk add --no-scripts docker dockerd iptables-nft ip6tables-nft resize2fs >/dev/null
@@ -444,7 +445,7 @@ rm -f $R/etc/rc.d/*pulseaudio
 # (the cage package'"'"'s own kiosk service: cog on http://localhost/, which is LuCI,
 # shown at every boot before the info screen'"'"'s session takes the panel)
 rm -f $R/etc/rc.d/*cage
-for s in e5-hw e5-vendor e5-modemd e5-sipc-wwan e5-telnetd e5-boot-ok e5-sms-notify e5-charge unisoc-battery e5-apn-auto e5-network-recovery e5-luci e5-audio e5-voice-audio e5-hfp e5-bt bluetoothd dbus modemmanager e5-usb-watch ttyd $screen; do
+for s in e5-hw e5-vendor e5-modemd e5-sipc-wwan e5-telnetd e5-boot-ok e5-sms-notify e5-charge unisoc-battery e5-apn-auto e5-network-recovery e5-mm-state e5-luci e5-audio e5-voice-audio e5-hfp e5-bt bluetoothd dbus modemmanager e5-usb-watch ttyd $screen; do
     n=$(sed -n "s/^START=//p" $R/etc/init.d/$s)
     ln -sf ../init.d/$s $R/etc/rc.d/S$n$s
 done

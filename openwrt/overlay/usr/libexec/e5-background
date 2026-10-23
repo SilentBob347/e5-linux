@@ -1,0 +1,8 @@
+#!/bin/sh
+# Apply the saved CPU placement only to this background service and children.
+# Screen rendering, audio, ModemManager and IRQ affinity are untouched.
+set -eu
+[ "$#" -gt 0 ] || exit 2
+cpus=$(/usr/libexec/e5-background-cpus)
+[ "$cpus" != all ] || exec "$@"
+exec /opt/e5/bin/busybox taskset -c "$cpus" "$@"

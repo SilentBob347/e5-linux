@@ -16,8 +16,8 @@ start_service() {
 		[ -f $M/sipc_wwan.ko ] || M=$(dirname "$(find /lib/modules/$(uname -r) -name sipc_wwan.ko | head -1)")
 		i=0
 		until [ -e /dev/stty_nr1 ]; do
-			i=$((i + 1)); [ $i -gt 120 ] && { echo "no /dev/stty_nr1 after 120 s"; exit 1; }
-			sleep 1
+			i=$((i + 1)); [ $i -gt 600 ] && { echo "no /dev/stty_nr1 after 120 s"; exit 1; }
+			/opt/e5/bin/busybox usleep 200000
 		done
 		# (OpenWrt'"'"'s insmod refuses to run without the release'"'"'s module
 		# directory, even for a module given by its path)
@@ -39,8 +39,12 @@ start_service() {
 				fi ;;
 			esac
 		fi
-		grep -q "^sipc_wwan " /proc/modules || insmod $M/sipc_wwan.ko card=$C ||
-			{ [ $C = 0 ] && insmod $M/sipc_wwan.ko; } || exit 1
+		# Use the shared 50 ms pacing in direct staging and update paths too.
+		# Do not restore the driver default of 300 ms.
+		grep -q "^sipc_wwan " /proc/modules || insmod $M/sipc_wwan.ko card=$C tx_gap_ms=50 ||
+			{ [ $C = 0 ] && insmod $M/sipc_wwan.ko tx_gap_ms=50; } || exit 1
+		# unisoc-port-discovery: bypass the global hotplug queue after probe closes.
+		[ ! -x /usr/libexec/e5-mm-report-ports ] || /usr/libexec/e5-mm-report-ports
 		echo "sipc_wwan loaded, SIM card $C"'
 	procd_set_param stdout 1
 	procd_set_param stderr 1

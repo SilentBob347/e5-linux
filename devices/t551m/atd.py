@@ -25,7 +25,7 @@ FINAL = re.compile(rb'^(?:OK|ERROR|\+CM[ES] ERROR(?::.*)?|CONNECT(?: .*)?|NO CAR
 
 
 class Channel:
-    def __init__(self, fd, gap=0.1):
+    def __init__(self, fd, gap=0.05):
         self.fd, self.gap = fd, gap
         self.pending = b''
         self.synchronized = True

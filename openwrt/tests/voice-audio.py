@@ -3,7 +3,7 @@
 import importlib.machinery
 import importlib.util
 from pathlib import Path
-source = Path(__file__).resolve().parents[1] / 'overlay/usr/libexec/e5-voice-audio'
+source = Path(__file__).resolve().parents[1] / 'tests/reference/voice-audio.py'
 loader = importlib.machinery.SourceFileLoader('openwrt_voice', str(source))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 voice = importlib.util.module_from_spec(spec)

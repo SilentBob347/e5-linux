@@ -31,6 +31,8 @@ def stage(root, profile='t551m'):
     # Also stage into archive-only roots; the defaults hook patches package
     # files after installation when they are not present in the staging root.
     for source, destination in [('network-startup.py', 'opt/e5/t551m-network-startup'),
+                                ('charge-mode.py', 'usr/libexec/e5-charge-mode'),
+                                ('charge-mode-service', 'etc/init.d/e5-charge-mode'),
                                 ('wifi-address-defaults', 'etc/uci-defaults/99-t551m-wifi-address'),
                                 ('network-startup-defaults', 'etc/uci-defaults/98-t551m-network-startup')]:
         target = root / destination
@@ -103,7 +105,22 @@ def stage(root, profile='t551m'):
     shutil.copyfile(Path(__file__).with_name('ui-compat.py'), target)
     target.chmod(0o755)
     for source, destination in [
-        (Path(__file__).with_name('atd.py'), 'opt/e5/t551m-atd'),
+        (TOP / 'openwrt/overlay/usr/libexec/e5-mm-state', 'usr/libexec/e5-mm-state'),
+        (TOP / 'openwrt/overlay/usr/libexec/e5-background', 'usr/libexec/e5-background'),
+        (TOP / 'openwrt/overlay/usr/libexec/e5-background-cpus', 'usr/libexec/e5-background-cpus'),
+        (TOP / 'openwrt/overlay/usr/libexec/e5-charge', 'usr/libexec/e5-charge'),
+        (TOP / 'openwrt/overlay/usr/libexec/e5-charge-core.uc', 'usr/libexec/e5-charge-core.uc'),
+        (TOP / 'openwrt/overlay/usr/libexec/e5-usb-watch', 'usr/libexec/e5-usb-watch'),
+        (TOP / 'openwrt/overlay/usr/libexec/e5-usb-watch.uc', 'usr/libexec/e5-usb-watch.uc'),
+        (TOP / 'openwrt/overlay/etc/init.d/e5-hw', 'etc/init.d/e5-hw'),
+        (TOP / 'openwrt/overlay/etc/init.d/e5-sipc-wwan', 'etc/init.d/e5-sipc-wwan'),
+        (TOP / 'rootfs/overlay/opt/e5/regdb-load.sh', 'opt/e5/regdb-load.sh'),
+        (TOP / 'openwrt/overlay/etc/init.d/e5-mm-state', 'etc/init.d/e5-mm-state'),
+        (TOP / 'openwrt/overlay/etc/init.d/e5-network-recovery', 'etc/init.d/e5-network-recovery'),
+        (TOP / 'openwrt/overlay/etc/init.d/e5-sms-notify', 'etc/init.d/e5-sms-notify'),
+        (TOP / 'openwrt/overlay/etc/hotplug.d/usb/80-e5-usb-watch', 'etc/hotplug.d/usb/80-e5-usb-watch'),
+        (TOP / 'openwrt/overlay/etc/hotplug.d/udc/80-e5-usb-watch', 'etc/hotplug.d/udc/80-e5-usb-watch'),
+        (TOP / 'openwrt/overlay/etc/hotplug.d/extcon/80-e5-usb-watch', 'etc/hotplug.d/extcon/80-e5-usb-watch'),
         (Path(__file__).with_name('at-service'), 'etc/init.d/t551m-at'),
         (Path(__file__).with_name('ui-cleanup.py'), 'opt/e5/t551m-ui-cleanup'),
         (TOP / 'rootfs/overlay/opt/e5/e5-at', 'opt/e5/e5-at'),
@@ -116,9 +133,18 @@ def stage(root, profile='t551m'):
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(source.read_bytes().replace(b'\r\n', b'\n'))
         target.chmod(0o755)
+    # The property mirror and HFP use the same pinned, already tracked wheel.
+    # Keep the archive byte-for-byte; never newline-normalize binary inputs.
+    vendor = root / 'usr/lib/e5/vendor'
+    vendor.mkdir(parents=True, exist_ok=True)
+    for name in ('dbus_next-0.2.3-py3-none-any.whl', 'dbus-next.LICENSE'):
+        shutil.copyfile(TOP / 'openwrt/overlay/usr/lib/e5/vendor' / name, vendor / name)
     client = runpy.run_path(str(Path(__file__).with_name('build-at-client.py')))['build']()
     shutil.copyfile(client, root / 'opt/e5/t551m-at')
     (root / 'opt/e5/t551m-at').chmod(0o755)
+    owner = runpy.run_path(str(Path(__file__).with_name('build-at-owner.py')))['build']()
+    shutil.copyfile(owner, root / 'opt/e5/t551m-atd')
+    (root / 'opt/e5/t551m-atd').chmod(0o755)
     runpy.run_path(str(Path(__file__).with_name('ui-cleanup.py')))['cleanup'](root)
     runpy.run_path(str(Path(__file__).with_name('infoscreen') / 'stage.py'))['stage'](root)
     # S10boot runs uci-defaults after rcS has expanded its startup file list.
@@ -127,7 +153,7 @@ def stage(root, profile='t551m'):
         old_cpu_link = root / 'etc/rc.d/S18e5-cpu'
         if old_cpu_link.is_symlink():
             old_cpu_link.unlink()
-        for name, priority in [('unisoc-cpu-cores', '99'), ('e5-cpu', '13'), ('t551m-at', '81'), ('unisoc-modem-ui', '95'), ('unisoc-traffic', '96'), ('unisoc-sms-forward', '96')]:
+        for name, priority in [('e5-mm-state', '30'), ('unisoc-ttl', '97'), ('unisoc-cpu-cores', '99'), ('e5-cpu', '13'), ('t551m-at', '81'), ('unisoc-modem-ui', '95'), ('unisoc-traffic', '96'), ('unisoc-sms-forward', '96')]:
             link = root / f'etc/rc.d/S{priority}{name}'
             link.parent.mkdir(parents=True, exist_ok=True)
             if not link.is_symlink():

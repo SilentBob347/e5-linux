@@ -14,6 +14,7 @@ import select
 import struct
 import subprocess
 import time
+import sys
 
 SYS = Path('/sys')
 STATE = Path('/run/charge-mode.json')
@@ -255,7 +256,15 @@ def run():
                 path.write_text(saved[path])
 
 
-if __name__ == '__main__':
+def radio_boot_policy():
+    """Read only: early CP boot must honor the existing charge-only policy."""
+    commandline = (SYS / 'firmware/devicetree/base/chosen/bootargs').read_text()
+    return 'defer' if charger_boot(commandline) and not power_on_supply() else 'early'
+
+
+if __name__ == '__main__' and sys.argv[1:] == ['--radio-boot-policy']:
+    print(radio_boot_policy())
+elif __name__ == '__main__':
     try:
         with open('/run/charge-mode.lock', 'a') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
