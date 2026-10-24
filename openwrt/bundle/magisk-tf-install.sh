@@ -24,16 +24,9 @@ preflight() {
         *) fail 'Android slot unavailable' ;;
     esac
     [ "$ANDROID_SLOT" != b ] || [ "${SLOT_ROLES_VERSION:-0}" -ge 1 ] || fail 'package initramfs lacks dynamic-slot support'
-    # T512N/PB8 engineering firmware accepts a replacement boot while reporting
-    # green/locked. Keep all existing models' preflight behavior unchanged.
     case "${PROFILE:-}" in
-        t512n) ;;
         yuanhang41s) [ "$(getprop ro.product.device)" = P720S11 ] || fail 'unknown 41S board' ;;
-        k1)
-            [ "$(getprop ro.product.device)" = ums9157_2h10 ] || fail 'unknown K1 board'
-            [ "$(getprop ro.boot.verifiedbootstate)" = orange ] || fail 'bootloader must be unlocked'
-            ;;
-        *) [ "$(getprop ro.boot.verifiedbootstate)" = orange ] || fail 'bootloader must be unlocked' ;;
+        k1) [ "$(getprop ro.product.device)" = ums9157_2h10 ] || fail 'unknown K1 board' ;;
     esac
     [ -s "$P/files/ext4-tools.tar" ] || fail 'missing bundled ext4 tools'
     tar -tf "$P/files/ext4-tools.tar" > "$STATE/ext4-tools.list"

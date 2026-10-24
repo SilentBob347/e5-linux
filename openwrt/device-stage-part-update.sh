@@ -2,9 +2,10 @@
 # Prepare only: the mounted root is never overwritten from the running system.
 set -eu
 stage=${1:?upload directory}
+case "${E5_NV_POLICY:-preserve}" in preserve|original) ;; *) exit 2 ;; esac
 case "$stage" in /tmp/e5-update-*) ;; *) exit 1 ;; esac
 if [ ! -f /etc/e5/part-root ] && [ ! -f /etc/e5/sd-root ]; then
-    E5_IMAGE_SIZE=${E5_IMAGE_SIZE:?} sh "$stage/device-install-image.sh" "$stage/openwrt.ext4.gz"
+    E5_IMAGE_SIZE=${E5_IMAGE_SIZE:?} E5_NV_ARCHIVE="$stage/nv.tar" sh "$stage/device-install-image.sh" "$stage/openwrt.ext4.gz"
     exit
 fi
 exec 9>/run/e5-part-update.lock
@@ -32,6 +33,11 @@ gzip -t "$stage/openwrt.ext4.gz"
 mkdir -p /.e5-update
 chmod 700 /.e5-update
 cp "$stage/openwrt.ext4.gz" "$stage/ext4-tools.tar" /.e5-update/
+if [ "${E5_NV_POLICY:-preserve}" = original ]; then
+    [ -s "$stage/nv.tar" ]
+    cp "$stage/nv.tar" /.e5-update/nv-original.tar
+    (cd /.e5-update && sha256sum nv-original.tar > nv-original.sha256)
+fi
 view=$(mktemp -d /tmp/e5-update-view.XXXXXX)
 trap 'umount "$view" 2>/dev/null || :; rmdir "$view" 2>/dev/null || :' EXIT
 mount --bind / "$view"
@@ -53,7 +59,7 @@ tar -cf /.e5-update/firmware.tar $firmware
 settings=
 for name in etc/config etc/shadow etc/passwd etc/group etc/dropbear etc/e5 etc/e5linux \
     etc/uhttpd.crt etc/uhttpd.key etc/vnstat etc/e5-infoscreen etc/e5-sms etc/unisoc-modem \
-    etc/e5-sounds etc/e5-cpu-voltage.json etc/bluetooth; do
+    etc/e5-sounds etc/e5-cpu-voltage.json etc/bluetooth etc/e5-nv; do
     [ ! -e "$name" ] || settings="$settings $name"
 done
 tar -cf /.e5-update/settings.tar $settings
@@ -72,6 +78,7 @@ cid=$(cat "/sys/class/block/$disk/device/cid")
     echo VERSION=1; echo KIND="$kind"; echo CID="$cid"; echo ROOT_BYTES="$bytes"
     echo RAW_BYTES="$E5_IMAGE_SIZE"; echo RAW_SHA256="$E5_IMAGE_SHA256"
     echo PROFILE="$E5_UPDATE_PROFILE"
+    if [ "${E5_NV_POLICY:-preserve}" = original ]; then echo NV_POLICY=original; fi
 } > request.ready
 sync
 echo '== staged offline root update (no partition changes); settings and firmware saved'

@@ -108,6 +108,69 @@ def upload(client, path, destination):
         raise RuntimeError('uploaded file checksum mismatch: ' + path.name)
 
 
+def save_nv_backup(client, stage, profile):
+    """Persist a verified copy on the PC before any root/boot overwrite.
+
+    The early-boot updater still captures the final, fully stopped working
+    copies. This separate copy survives a power loss during a full rewrite.
+    No NV bytes are printed and no SFTP server is required.
+    """
+    if not re.fullmatch(r'[a-z][a-z0-9-]{0,40}', profile): raise ValueError('Invalid NV backup profile')
+    policy = 'preserve'
+    try:
+        result = execute(client, 'if [ -e /opt/e5/nv ] || [ -L /opt/e5/nv ]; then '
+            'python3 '+shlex.quote(stage+'/nv-persistence.py')+' archive --lock > '+shlex.quote(stage+'/nv.tar')+'; '
+            'printf "NV-BACKUP "; sha256sum '+shlex.quote(stage+'/nv.tar')+' | cut -d" " -f1; '
+            'else echo NV-NONE; fi')
+    except Exception as error:
+        # Verify a separate source first. A mutex/transport/original-NV failure
+        # cannot be bypassed by merely clicking a recovery button.
+        try:
+            result = execute(client, 'python3 '+shlex.quote(stage+'/nv-persistence.py')+
+                ' factory-archive --lock > '+shlex.quote(stage+'/nv-original.tar')+'; '
+                'printf "NV-BACKUP "; sha256sum '+shlex.quote(stage+'/nv-original.tar')+' | cut -d" " -f1')
+        except Exception as source_error:
+            raise ValueError('Original NV recovery could not be verified; nothing overwritten / '
+                             '本机原始 NV 的恢复检查未完成，尚未覆盖系统') from source_error
+        reason = 'Working NV could not be preserved / 工作 NV 无法保留: '+str(error)
+        if GUI:
+            accepted = GUI.confirm_nv_recovery(reason)
+        else:
+            print(reason)
+            accepted = input('Use this device\'s original (Android) NV instead? OpenWrt NV changes will be lost; '
+                'original partitions are not modified. / 改用本机原始 NV，将丢失 OpenWrt NV 修改，原分区不变。输入 yes: ').strip() == 'yes'
+        if not accepted: raise ValueError('NV recovery declined; nothing overwritten / 未确认恢复，未覆盖系统')
+        execute(client, 'mv '+shlex.quote(stage+'/nv-original.tar')+' '+shlex.quote(stage+'/nv.tar'))
+        policy = 'original'
+    if result.strip() == 'NV-NONE': return None
+    matches = re.findall(r'^NV-BACKUP ([0-9a-f]{64})$', result, re.M)
+    if len(matches) != 1: raise ValueError('NV backup did not complete; update stopped')
+    base = Path(GUI.backup_base()) if GUI and hasattr(GUI, 'backup_base') else Path.home()/'e5-backups'
+    directory = base/'nv-updates'/(profile+'-'+time.strftime('%Y%m%d-%H%M%S')+'-'+uuid.uuid4().hex[:8])
+    directory.mkdir(parents=True, mode=0o700)
+    path = directory/'nv.tar'; checksum = hashlib.sha256()
+    record = {'profile': profile, 'time': int(time.time()), 'sha256': matches[0], 'ok': False, 'policy': policy}
+    try:
+        _, out, err = client.exec_command('cat '+shlex.quote(stage+'/nv.tar'), timeout=180)
+        with path.open('xb') as stream:
+            os.chmod(path, 0o600)
+            while data := out.read(262144):
+                stream.write(data); checksum.update(data)
+            stream.flush(); os.fsync(stream.fileno())
+        err.read()
+        if out.channel.recv_exit_status() or checksum.hexdigest() != matches[0]:
+            raise ValueError('NV backup readback failed; update stopped; retained '+str(directory))
+        (directory/'SHA256SUMS').write_text(matches[0]+'  nv.tar\n',encoding='utf-8')
+        record['ok'] = True
+    except Exception as error:
+        record['error'] = str(error)
+        raise
+    finally:
+        (directory/'backup.json').write_text(json.dumps(record,indent=2)+'\n',encoding='utf-8')
+    print('NV backup verified / NV 备份已校验: '+str(path), flush=True)
+    return path
+
+
 def main():
     import paramiko
     p = argparse.ArgumentParser(description=__doc__)
@@ -167,15 +230,17 @@ def main():
             head = Path(temporary) / 'boot-head.img'
             head.write_bytes(image[:boot['persist_log_offset']])
             for name in ('openwrt.ext4.gz', 'ext4-tools.tar', 'device-install-image.sh',
-                         'device-flash-boot.sh', 'device-stage-part-update.sh', 'e5-gpt'):
+                         'device-flash-boot.sh', 'device-stage-part-update.sh', 'e5-gpt', 'nv-persistence.py'):
                 upload(client, files / name, stage + '/' + name)
             upload(client, head, stage + '/boot-head.img')
+            nv_backup = save_nv_backup(client, stage, profile)
+            nv_policy = json.loads((nv_backup.parent/'backup.json').read_text())['policy'] if nv_backup else 'preserve'
             command = ('umask 077; mkdir -p /run/e5-upgrade; '
                 '[ ! -L /run/e5-upgrade ] && [ "$(stat -c %u:%a /run/e5-upgrade)" = 0:700 ]; '
                 '[ ! -L /run/e5-upgrade/lock ]; exec 8>>/run/e5-upgrade/lock; '
                 'flock -n 8 || { echo "another upgrade is running"; exit 1; }; '
                 'export E5_UPGRADE_LOCK_HELD=1; ' +
-                capacity_env + 'E5_IMAGE_SIZE=' + str(a.raw_size) + ' E5_IMAGE_SHA256=' + shlex.quote(a.raw_sha256) +
+                capacity_env + 'E5_NV_POLICY='+nv_policy+' E5_IMAGE_SIZE=' + str(a.raw_size) + ' E5_IMAGE_SHA256=' + shlex.quote(a.raw_sha256) +
                 ' E5_UPDATE_PROFILE=' + shlex.quote(profile) + ' sh ' + stage + '/device-stage-part-update.sh ' + stage)
             command += '; sh ' + stage + '/device-flash-boot.sh ' + stage + '/boot-head.img ' + \
                     hashlib.sha256(head.read_bytes()).hexdigest() + ' ' + str(boot['persist_log_offset'] >> 20)

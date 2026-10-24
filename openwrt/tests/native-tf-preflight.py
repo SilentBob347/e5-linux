@@ -12,16 +12,16 @@ TOP=Path(__file__).resolve().parents[2]
 
 class Preflight(unittest.TestCase):
     def test_geometry_helper_is_required_before_boot_or_card_operations(self):
-        for include,profile,verified,allowed,slot in (
-                (False,'e5','orange',True,'a'), (True,'e5','orange',True,'a'),
-                (True,'e5','orange',True,'b'), (True,'yuanhang41s','green',True,'b'),
-                (True,'k1','orange',True,'a'), (True,'k1','orange',True,'b'),
-                (True,'k1','green',False,'b'),
-                (True,'t512n','green',True,'a'), (True,'e5','green',False,'a')):
+        cases=[(False,'e5','green',True,'a'),(True,'k1','green',False,'b'),
+               (True,'yuanhang41s','green',False,'a')]
+        cases += [(True,profile,state,True,slot)
+                  for profile in ('e5','m8','t551m','t512n','yuanhang41s','k1')
+                  for state in ('orange','green','yellow','red','') for slot in ('a','b')]
+        for include,profile,verified,allowed,slot in cases:
             with self.subTest(include=include,profile=profile,verified=verified),tempfile.TemporaryDirectory() as directory:
                 root=Path(directory);package=root/'package';state=root/'state'
                 (package/'files').mkdir(parents=True);state.mkdir()
-                model = {'t512n':'T512N','yuanhang41s':'ZTE 7546N','k1':'angelcare K1'}.get(profile,'E5')
+                model = {'m8':'M8','t551m':'T551M','t512n':'T512N','yuanhang41s':'ZTE 7546N','k1':'angelcare K1'}.get(profile,'E5')
                 (package/'files/tf-install.env').write_text(f'PROFILE={profile}\nANDROID_MODEL="{model}"\nBOOT_BYTES=4096\nSLOT_ROLES_VERSION=1\n')
                 node=root/'dev/block/by-name';node.mkdir(parents=True)
                 for n in ('boot_a','boot_b','misc'):(node/n).touch()
@@ -42,13 +42,14 @@ blockdev(){ echo 4096; }
                 # Library loading returns before main; the appended preflight is explicit.
                 fixture=root/'library.sh';fixture.write_text(code)
                 harness='. "$LIB"; preflight'
-                env=dict(os.environ,LIB=str(fixture),E5_TF_LIB='1',P=str(package),STATE=str(state),TEST_MODEL=model,TEST_VERIFIED=verified,TEST_SLOT=slot,TEST_BOARD='ums9157_2h10' if profile=='k1' else 'P720S11')
+                board=('ums9157_2h10' if profile=='k1' else 'P720S11') if allowed else 'wrong-board'
+                env=dict(os.environ,LIB=str(fixture),E5_TF_LIB='1',P=str(package),STATE=str(state),TEST_MODEL=model,TEST_VERIFIED=verified,TEST_SLOT=slot,TEST_BOARD=board)
                 result=subprocess.run(['busybox','ash','-ec',harness],env=env,capture_output=True,text=True)
                 self.assertNotEqual(result.returncode,0)
                 self.assertEqual((state/'reached-boot-check').exists(),include and allowed,result.stdout+result.stderr)
                 self.assertEqual('missing ext4 tool: ext4-geometry.sh' in result.stderr,not include and allowed)
                 if not allowed:
-                    self.assertIn('bootloader must be unlocked',result.stderr)
+                    self.assertIn('unknown K1 board' if profile=='k1' else 'unknown 41S board',result.stderr)
 
 
 if __name__=='__main__':unittest.main()

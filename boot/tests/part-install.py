@@ -193,7 +193,7 @@ chroot() {
 '''
                 script = ('set -eu\n' + fixture +
                           f'stage="{stage}"; node=mmcblk0p71; token=' + 'c' * 32 +
-                          f'; dev=unused; MODE={mode}\n' + code)
+                          f'; dev=unused; MODE={mode}; nvbackup="{stage}/no-nv"\n' + code)
                 script = script.replace('/data/local/tmp/', str(root) + '/')
                 p = subprocess.run(['busybox', 'ash'], input=script, text=True,
                                    capture_output=True, timeout=10)

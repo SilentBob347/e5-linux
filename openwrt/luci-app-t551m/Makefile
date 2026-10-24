@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-t551m
 PKG_VERSION:=1.1.0
-PKG_RELEASE:=11
+PKG_RELEASE:=12
 PKG_LICENSE:=MIT
 PKG_MAINTAINER:=MU300 Linux contributors
 PKGARCH:=all
@@ -14,7 +14,7 @@ define Package/luci-app-t551m
   CATEGORY:=LuCI
   SUBMENU:=3. Applications
   TITLE:=Unisoc modem control center
-  DEPENDS:=+luci-base +firewall4 +nftables-json +flock +rpcd +rpcd-mod-ucode +jsonfilter +curl +ca-bundle +openssl-util +msmtp +python3-light +ucode +ucode-mod-fs +ucode-mod-ubus +ucode-mod-uci +ucode-mod-uloop +ucode-mod-rtnl +ucode-mod-nl80211
+  DEPENDS:=+luci-base +firewall4 +nftables-json +flock +rpcd +rpcd-mod-ucode +jsonfilter +curl +ca-bundle +openssl-util +msmtp +python3 +ucode +ucode-mod-fs +ucode-mod-ubus +ucode-mod-uci +ucode-mod-uloop +ucode-mod-rtnl +ucode-mod-nl80211
 endef
 
 define Package/luci-app-t551m/description
@@ -53,7 +53,7 @@ define Package/luci-app-t551m/install
 	chmod 0600 $(1)/etc/config/unisoc_apn
 	chmod 0755 $(1)/etc/uci-defaults/97-unisoc-upgrade-policy
 	chmod 0755 $(1)/usr/libexec/rpcd/e5-sounds
-	chmod 0755 $(1)/usr/libexec/rpcd/e5-charge
+	chmod 0755 $(1)/usr/libexec/rpcd/e5-charge $(1)/usr/libexec/rpcd/e5-nv
 	chmod 0755 $(1)/etc/init.d/unisoc-ttl $(1)/etc/hotplug.d/iface/92-unisoc-ttl $(1)/etc/uci-defaults/98-unisoc-ttl
 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/i18n
 	$(CP) ./lmo/. $(1)/usr/lib/lua/luci/i18n/

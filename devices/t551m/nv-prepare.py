@@ -191,8 +191,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--refresh', action='store_true', help='Refresh working copies changed by Android; requires stopped vendor daemons and no NV loops')
     args = parser.parse_args()
+    if Path('/run/e5-nv/import-active').exists():
+        raise RuntimeError('NV import maintenance active; reboot to start the modem with the verified copies')
     if vendor_pids():
         raise RuntimeError('Stop vendor daemons before preparing NV')
+    # Resolve an interrupted import only while no modem or loop can write it.
+    if Path('/opt/e5/nv-import.json').exists():
+        if attached_loops(): raise RuntimeError('Detach NV loops before import recovery')
+        import sys
+        sys.path.insert(0, '/usr/lib/e5')
+        from nv_persistence import recover_import
+        recover_import(Path('/'))
     if args.refresh:
         if attached_loops():
             raise RuntimeError('Detach NV working loops before refreshing')
@@ -259,6 +268,7 @@ def main():
     BOOT_SOURCE.write_text(json.dumps(boot_source, indent=2) + '\n')
     BOOT_SOURCE.chmod(0o600)
     READY.touch()
+    Path('/etc/e5/nv-update-original').unlink(missing_ok=True)
     print('T551M: factory NV read-only; validated writable working copies ready')
 
 

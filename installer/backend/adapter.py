@@ -15,7 +15,7 @@ import time
 from types import SimpleNamespace
 
 from . import gpt
-from .state import Pending, RecoveryRequired, atomic_json, sha
+from .state import Pending, RecoveryRequired, NVConfirmationRequired, atomic_json, sha
 from .transport import Adb, push_chunks
 from .boot_image import boot_installed_e5, boot_installed_mu300
 from .mu300_update import update_mu300
@@ -118,6 +118,25 @@ class Adapter:
             raise RecoveryRequired('GUI confirmation context is unavailable / 图形界面确认上下文不可用，已停止')
         self.ctx.boundary()
         return True
+
+    def confirm_nv_recovery(self, reason):
+        if not self.ctx: raise RecoveryRequired('NV recovery confirmation context unavailable')
+        previous = self.ctx.record.get('nv_recovery', {})
+        if previous.get('state') == 'confirmed': return True
+        self.ctx.log(str(reason), level='warning', scope='nv-preservation')
+        labels = {
+            'nv_invalid_checksum': '工作 NV 校验失败 / Working NV checksum failed',
+            'nv_invalid_header': '工作 NV 格式检查失败 / Working NV format check failed',
+            'nv_origin_unavailable': 'NV 来源记录缺失或损坏 / NV origin record is missing or damaged',
+            'nv_snapshot_changed': '备份期间工作 NV 发生变化 / Working NV changed during backup',
+        }
+        explanation = next((label for code,label in labels.items() if code in str(reason)),
+            '现有工作 NV 无法完整保留 / Existing working NV could not be preserved')
+        self.ctx.record['nv_recovery'] = {
+            'state': 'awaiting', 'nonce': secrets.token_hex(16),
+            'reason': explanation}
+        self.ctx.stage('nv_recovery', 'waiting_user')
+        raise NVConfirmationRequired()
 
     def console_input_unavailable(self, *_args, **_kwargs):
         raise RecoveryRequired('A required GUI option is missing; console input is unavailable / 缺少必要的图形界面参数，已停止；请返回安装计划检查选项')
@@ -268,8 +287,6 @@ class Adapter:
                 raise ValueError('Android slot unavailable / 无法识别 Android 槽位')
             self.legacy.ANDROID_SLOT = device['slot'][1:]
             self.legacy.LINUX_SLOT = 'b' if device['slot'] == '_a' else 'a'
-            if profile['profile'] not in ('t512n','yuanhang41s') and properties['ro.boot.verifiedbootstate'] != 'orange':
-                raise ValueError('E5 requires unlocked Android / E5 要求已解锁 Android')
         else:
             device['profile'] = self.legacy.android_profile(device['model'] + '\n' + properties['ro.product.device'], properties['ro.board.platform'])
         # Trial boot uses only the boot signature, boot-chain check and misc.

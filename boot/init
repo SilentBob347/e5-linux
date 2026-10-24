@@ -802,9 +802,18 @@ elif [ -z "$rootdir" ] && [ -z "$SDMETA" ] && [ -z "$SDMETA_INVALID" ] && [ -n "
     # an update the running image could not write over itself
     # (openwrt/device-install-image.sh): swapped in now, the old one kept
     if [ -f "$OPENWRT_FILE.new" ]; then
-        rm -f "$OPENWRT_FILE.old"
-        [ -f "$OPENWRT_FILE" ] && mv "$OPENWRT_FILE" "$OPENWRT_FILE.old"
-        mv "$OPENWRT_FILE.new" "$OPENWRT_FILE" && log "stage=openwrt-image-updated"
+        nv_ok=1
+        if [ -f "$OPENWRT_FILE" ]; then
+            . /etc/nv-preserve.sh
+            nv_migrate_images "$OPENWRT_FILE" "$OPENWRT_FILE.new" || nv_ok=0
+        fi
+        if [ "$nv_ok" = 1 ]; then
+            rm -f "$OPENWRT_FILE.old"
+            [ -f "$OPENWRT_FILE" ] && mv "$OPENWRT_FILE" "$OPENWRT_FILE.old"
+            mv "$OPENWRT_FILE.new" "$OPENWRT_FILE" && log "stage=openwrt-image-updated"
+        else
+            log "stage=openwrt-image-update-aborted NV preservation failed; old image retained"
+        fi
     fi
     if [ -f "$OPENWRT_FILE" ] && { [ -n "$e5_trial" ] || [ "$want" = openwrt ] || [ ! -f "$ROOT_FILE" ]; }; then
         rootloop=$(losetup -f 2>/run/rootmount.err)

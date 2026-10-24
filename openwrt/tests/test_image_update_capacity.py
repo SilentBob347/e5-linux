@@ -209,6 +209,10 @@ class HostImageCapacity(unittest.TestCase):
                     commands.append(command)
                     return 'image' if command.startswith('if [ -f /etc/e5/part-root ]') else ''
                 with patch.object(self.module, 'GUI', gui), patch.object(self.module, 'execute', side_effect=execute), \
+                     patch.object(self.module.runpy, 'run_path', return_value={}), \
+                     patch.object(self.module, 'read_control', return_value=b'control'), \
+                     patch.object(self.module, 'bind_update_boot', return_value=b'fixture'), \
+                     patch.object(self.module, 'save_nv_backup', return_value=None), \
                      patch.object(self.module, 'upload'), patch.dict('sys.modules', {'paramiko': Mock()}), \
                      patch('sys.argv', ['e5-update', '--package', folder, '--host', '192.0.2.1',
                                         '--raw-size', str(2 << 30), '--raw-sha256', 'a' * 64]), \

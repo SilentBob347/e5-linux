@@ -48,6 +48,7 @@ import time
 import struct
 import zlib
 import uuid  # also bundled for the runtime two-stage installer in flash.exe
+from types import SimpleNamespace
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
 
 B = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, 'frozen', False) else __file__))
@@ -368,6 +369,8 @@ def su_checked(stage, cmd, timeout=600, effect=None):
     body = out[:match.start()].rstrip()
     status = int(match.group(1))
     if status:
+        if 'E5_NV_PRESERVE_FAILED' in body:
+            raise ValueError('E5_NV_PRESERVE_FAILED: '+body[-2000:])
         try:
             context = su('dmesg | grep -iE "mmc|sdhci|ext4|I/O error|read-only|crc|Buffer I/O" | tail -18', timeout=20)
         except (subprocess.TimeoutExpired, OSError):
@@ -543,10 +546,6 @@ def android_checks():
         die('Android slot is unavailable; nothing written')
     ANDROID_SLOT = suffix[1:]
     LINUX_SLOT = 'b' if ANDROID_SLOT == 'a' else 'a'
-    # T512N engineering firmware reports green/locked but the owner confirmed
-    # it accepts the replacement boot payload without an unlock/reset.
-    if (not profile or profile['profile'] not in ('t512n','yuanhang41s')) and sh('getprop ro.boot.verifiedbootstate').strip() != 'orange':
-        die('the bootloader is locked (verifiedbootstate is not orange)')
     if 'ok' not in su(f'[ -e /dev/block/by-name/boot_{LINUX_SLOT} ] && [ -e /dev/block/by-name/l_agdsp_{ANDROID_SLOT} ] && echo ok'):
         die('target boot or Android audio firmware partition missing')
     android_tools()
@@ -1009,11 +1008,81 @@ def stage_userdata_image(raw_size, selected):
     if not 0 < raw_mib <= selected_mib <= 2147483647:
         die('userdata image size is outside the supported MiB range')
     script = os.path.join(F, 'userdata-image.sh')
+    push(os.path.join(F, 'nv-persistence.py'), f'{TMP}/e5-nv-persistence.py', 'NV preservation')
     push(os.path.join(F, 'android-loop.sh'), f'{TMP}/e5-android-loop.sh', 'android-loop.sh')
     push(script, f'{TMP}/e5-userdata-image.sh', 'userdata-image.sh')
+    command = f'E5_NV_TOKEN={uuid.uuid4().hex} sh {TMP}/e5-userdata-image.sh {raw_size} {selected} {raw_mib} {selected_mib}'
+    try:
+        su_checked('检查工作 NV / checking working NV', command+' --nv-check', timeout=600)
+    except (ValueError, SystemExit) as error:
+        if 'E5_NV_PRESERVE_FAILED' not in str(error): raise
+        original_nv_recovery(str(error))
+        command = 'E5_NV_POLICY=original '+command
+        su_checked('准备原机 NV / preparing original NV', command+' --nv-check', timeout=600)
     su_checked('扩容和只读检查 userdata 镜像 / resizing and verifying userdata image',
-               f'sh {TMP}/e5-userdata-image.sh {raw_size} {selected} {raw_mib} {selected_mib}', timeout=1800,
+               command+' --nv-ready', timeout=1800,
                **({'effect':'root-userdata-image'} if GUI else {}))
+
+
+def original_nv_recovery(reason):
+    """Validate/read this Android unit's originals; typed consent before use.
+
+    Binary transfer bypasses log-printing text helpers. Nothing is written to
+    the NV partitions and an absent old installer record is not a blocker.
+    """
+    nv = runpy.run_path(os.path.join(F, 'nv-persistence.py'))
+    profile = package_profile()
+    if not profile or ANDROID_SLOT not in ('a','b'): die('Cannot identify original NV model/slot')
+    mapping = su_checked('识别原机 NV / identifying original NV',
+        "for u in /sys/class/block/mmcblk0p*/uevent; do "
+        "awk -F= '/^PARTNAME=/{n=$2}/^DEVNAME=/{d=$2}END{print n, d}' \"$u\"; done")
+    paths = {}
+    for line in mapping.splitlines():
+        parts = line.split()
+        if len(parts)!=2 or parts[0] not in nv['NAMES']: continue
+        name, dev = parts
+        if name in paths or not re.fullmatch(r'mmcblk0p[1-9][0-9]*',dev): die('Ambiguous original NV map')
+        paths[name] = '/dev/block/'+dev
+    if set(paths)!=set(nv['NAMES']): die('Original NV partition map is incomplete')
+    base = Path(GUI.backup_base()) if GUI else Path.home()/'e5-backups'
+    directory = base/'nv-recovery'/(time.strftime('%Y%m%d-%H%M%S')+'-'+uuid.uuid4().hex[:8])
+    directory.mkdir(parents=True, mode=0o700)
+    metadata = directory/'source/etc/e5'; metadata.mkdir(parents=True)
+    (metadata/'device-profile').write_text(profile['profile'])
+    (metadata/'modem-slot').write_text(ANDROID_SLOT)
+    devices = {}
+    for name, path in paths.items():
+        script = 'test -b '+path+' && cat '+path
+        if GUI:
+            data = GUI.read_legacy(SimpleNamespace(serial=SERIAL), script)
+        else:
+            command = android_shell('-c', shlex.quote(script)) if ANDROID_BUSYBOX else script
+            command = f'{SU} -c '+shlex.quote(command) if SU else command
+            result = subprocess.run([ADB,*(['-s',SERIAL] if SERIAL else []),'exec-out',command],
+                stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=180,
+                **({'creationflags':subprocess.CREATE_NO_WINDOW} if os.name=='nt' else {}))
+            if result.returncode: die('Original NV read failed: '+name)
+            data = result.stdout
+        local = directory/'source'/name; local.write_bytes(data); local.chmod(0o600)
+        try: nv['validate'](local,name)
+        except nv['NVError']:
+            die('本机原始 NV 校验失败，不能作为恢复来源；未覆盖系统 / Original NV validation failed; nothing overwritten')
+        devices[name] = local
+    # Android may still update runtime NV. Reject a moving source rather than
+    # presenting an inconsistent snapshot as a valid original.
+    for name,path in paths.items():
+        expected = nv['digest'](devices[name])
+        got = su_checked('校验原机 NV / validating original NV','sha256sum '+path).split()[0]
+        if expected != got: die('Original NV changed while reading; retry without overriding validation')
+    archive = directory/'original-nv.tar'
+    with archive.open('xb') as output:
+        archive.chmod(0o600); nv['factory_archive'](directory/'source',output,devices)
+        output.flush(); os.fsync(output.fileno())
+    accepted = GUI.confirm_nv_recovery(reason) if GUI else ask(
+        '工作 NV 无法保留。使用本机原始 NV 将丢失 OpenWrt NV 修改；原始分区不变。'
+        'Use original Android NV and discard OpenWrt NV changes? Type yes: ') == 'yes'
+    if not accepted: die('NV recovery declined; nothing overwritten')
+    push(str(archive),f'{TMP}/e5-nv-original.tar','validated original NV')
 
 
 def install(a):

@@ -91,6 +91,34 @@ keep_config() {
         cp -a "$phone/." "$N/etc/e5-infoscreen/plugins/phone/"
     fi
     rm -rf "$phone"
+    rm -f "$N/etc/e5/nv-update-original"
+    if [ -e "$from/opt/e5/nv" ] || [ -L "$from/opt/e5/nv" ] || [ "${E5_NV_POLICY:-preserve}" = original ]; then
+        local nvarchive nv_policy=${E5_NV_POLICY:-preserve}
+        nvarchive=$(mktemp /tmp/e5-img.nv.XXXXXX)
+        # Executed by the current host's interpreter. The newly installed
+        # shared implementation pauses live writers or reads an offline tree.
+        if [ "${E5_NV_POLICY:-preserve}" = original ]; then
+            [ -s "${E5_NV_ARCHIVE:-}" ] && cp "$E5_NV_ARCHIVE" "$nvarchive" || return 1
+        else
+            python3 "$N/usr/lib/e5/nv_persistence.py" archive --root "$from" > "$nvarchive" || {
+                python3 "$N/usr/lib/e5/nv_persistence.py" factory-confirmed > "$nvarchive" || {
+                    echo 'NV recovery not confirmed/available; old image retained' >&2; return 1;
+                }
+                nv_policy=original
+            }
+        fi
+        tar -xf "$nvarchive" -C "$N" &&
+        chmod 700 "$N/opt/e5/nv" &&
+        python3 "$N/usr/lib/e5/nv_persistence.py" verify --root "$N" &&
+        python3 "$N/usr/lib/e5/nv_persistence.py" update-backup --root "$N" || {
+            echo "NV restore/readback failed; backup retained: $nvarchive" >&2; return 1;
+        }
+        if [ "$nv_policy" = original ] && [ -n "$running_image" ]; then
+            printf 'NV-ORIGINAL-RECOVERY-V1 %s %s\n' "$(cat "$N/etc/e5/device-profile")" \
+                "$(cat /sys/class/block/mmcblk0/device/cid)" > "$N/etc/e5/nv-update-original" || return 1
+        fi
+        rm -f "$nvarchive"
+    fi
 }
 
 # The device's own files (firmware, the Android vendor subset) as a tar on
@@ -242,7 +270,7 @@ elif [ -d /openwrt/etc/config ]; then
 fi
 
 N=$NEW_ROOT
-[ -n "$from" ] && keep_config "$from" "$N"
+if [ -n "$from" ]; then keep_config "$from" "$N" || exit 1; fi
 umount "$OLD_ROOT" 2>/dev/null || true
 
 if [ ! -f "$N/etc/e5/install.conf" ] && command -v nmcli >/dev/null 2>&1; then

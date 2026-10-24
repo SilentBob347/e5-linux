@@ -1,0 +1,21 @@
+#!/usr/bin/python3
+import json
+import sys
+sys.path.insert(0, '/usr/lib/e5')
+from nv_persistence import METHODS, NVError, dispatch
+
+if sys.argv[1:] == ['list']:
+    print(json.dumps(METHODS))
+elif len(sys.argv) == 3 and sys.argv[1] == 'call':
+    try:
+        raw = sys.stdin.read(4097)
+        if len(raw) > 4096: raise NVError('nv_invalid_request')
+        data = json.loads(raw or '{}')
+        if not isinstance(data, dict): raise NVError('nv_invalid_request')
+        print(json.dumps(dispatch(sys.argv[2], data)))
+    except NVError as error:
+        print(json.dumps({'ok': False, 'error': str(error)}))
+    except BlockingIOError:
+        print(json.dumps({'ok': False, 'error': 'nv_busy'}))
+    except Exception:
+        print(json.dumps({'ok': False, 'error': 'nv_operation_failed'}))

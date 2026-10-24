@@ -1,0 +1,7 @@
+{
+  "e5-nv": {
+    "description": "NV persistence status and explicit original-to-working import",
+    "read": {"ubus": {"e5-nv": ["status"]}},
+    "write": {"ubus": {"e5-nv": ["preview", "sync"]}}
+  }
+}

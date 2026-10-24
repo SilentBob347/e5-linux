@@ -24,9 +24,13 @@ done
 lock=/data/local/tmp/e5-part-write.lock
 mkdir "$lock" || { echo 'another installation or stale lock exists' >&2; exit 1; }
 stage=
+nv_phase=0
+nv_mode=${6:-}
+case "$nv_mode" in ''|--nv-check|--nv-ready) ;; *) exit 2 ;; esac
 mounted=0 devbound=0 procbound=0
 cleanup() {
     rc=$?; trap - EXIT
+    if [ "$rc" != 0 ] && [ "$nv_phase" = 1 ]; then echo E5_NV_PRESERVE_FAILED >&2; fi
     [ "$mounted" = 0 ] || umount "$stage/view" || exit 1
     [ "$procbound" = 0 ] || umount "$stage/proc" || exit 1
     [ "$devbound" = 0 ] || umount "$stage/dev" || exit 1
@@ -45,6 +49,67 @@ mount --bind /proc "$stage/proc"; procbound=1
 ln -s /proc/mounts "$stage/etc/mtab"
 tools() { name=$1; shift; chroot "$stage" "/usr/sbin/$name" "$@"; }
 image=/data/local/tmp/openwrt.ext4.gz
+
+# Reinstall must not throw away calibration written only in OpenWrt. Capture
+# the unmounted old root before the first write, using its own interpreter.
+# Keep this backup outside the root being overwritten, including on failure.
+nv_phase=1
+nvbase=/data/local/tmp/e5-nv-backups
+[ ! -L "$nvbase" ]
+mkdir -p "$nvbase"; chmod 700 "$nvbase"
+nvbackup= nvhash= nvfile=no
+nvreceipt=$nvbase/$token.receipt
+nvhelper=/data/local/tmp/e5-nv-persistence.py
+[ -s "$nvhelper" ] && [ ! -L "$nvreceipt" ]
+if [ -f "$nvreceipt" ] && { [ "${E5_NV_POLICY:-preserve}" != original ] || [ "${nv_mode:-}" = --nv-ready ]; }; then
+    read signature identity nvfile nvhash < "$nvreceipt"
+    [ "$signature" = NV-PRESERVATION-V1 ] && [ "$identity" = "$token" ]
+    if [ "$nvfile" != no ]; then
+        case "$nvfile" in "$token".tar.??????) ;; *) exit 1 ;; esac
+        suffix=${nvfile##*.}; case "$suffix" in *[!A-Za-z0-9]*) exit 1 ;; esac
+        case "$nvhash" in *[!0-9a-f]*) exit 1 ;; esac; [ "${#nvhash}" = 64 ]
+        nvbackup=$nvbase/$nvfile
+        [ ! -L "$nvbackup" ]
+        printf '%s  %s\n' "$nvhash" "$nvbackup" | sha256sum -c -
+    fi
+fi
+if [ "${nv_mode:-}" = --nv-ready ]; then
+    [ -f "$nvreceipt" ]
+elif [ "${E5_NV_POLICY:-preserve}" = original ]; then
+    [ -s /data/local/tmp/e5-nv-original.tar ]
+    nvbackup=$(mktemp "$nvbase/$token.tar.XXXXXX")
+    cp /data/local/tmp/e5-nv-original.tar "$nvbackup"
+    tar -tf "$nvbackup" >/dev/null
+    nvfile=${nvbackup##*/}; nvhash=$(sha256sum "$nvbackup" | cut -d' ' -f1)
+    [ "${#nvhash}" = 64 ]; case "$nvhash" in *[!0-9a-f]*) exit 1 ;; esac
+elif mount -t ext4 -o ro,noload "$dev" "$stage/view" 2>/dev/null; then
+    mounted=1
+    if [ -e "$stage/view/opt/e5/nv" ] || [ -L "$stage/view/opt/e5/nv" ]; then
+        # Every completed archive is immutable. An atomic receipt points at it,
+        # so interruption cannot pair a newer tar with an older checksum.
+        nvbackup=$(mktemp "$nvbase/$token.tar.XXXXXX")
+        (umask 077; chroot "$stage/view" /usr/bin/python3 - archive < "$nvhelper" > "$nvbackup.part")
+        tar -tf "$nvbackup.part" >/dev/null
+        mv "$nvbackup.part" "$nvbackup"
+        nvfile=${nvbackup##*/}; nvhash=$(sha256sum "$nvbackup" | cut -d' ' -f1)
+        [ "${#nvhash}" = 64 ]; case "$nvhash" in *[!0-9a-f]*) exit 1 ;; esac
+    fi
+    umount "$stage/view"; mounted=0
+elif [ ! -f "$nvreceipt" ]; then
+    # A prepared but never-installed partition has no filesystem or NV. All
+    # other unreadable roots require recovery, not silently losing calibration.
+    marker=$(head -c 128 "$dev" | tr -d '\000')
+    case "$marker" in "E5-PART-PREPARED-V2 $token"*) ;; *)
+        echo 'Cannot preserve existing OpenWrt NV; root was not overwritten' >&2; exit 1 ;;
+    esac
+fi
+# The SAME transaction may safely resume a partially written installation.
+# Old immutable archives and an interrupted .part are retained for diagnosis.
+(umask 077; printf 'NV-PRESERVATION-V1 %s %s %s\n' "$token" "$nvfile" "${nvhash:--}" > "$nvreceipt.part")
+mv "$nvreceipt.part" "$nvreceipt"
+sync
+nv_phase=0
+[ "${nv_mode:-}" != --nv-check ] || { echo NV-PREPARED; exit 0; }
 gzip -t "$image"
 [ "$(gzip -dc "$image" | wc -c | tr -d ' ')" = "$raw" ]
 want=$(gzip -dc "$image" | sha256sum | cut -d' ' -f1)
@@ -65,6 +130,13 @@ fi
 echo '3/4 installing device firmware and settings'
 mount -t ext4 "$dev" "$stage/view"; mounted=1
 tar -xf /data/local/tmp/e5-device-files.tar -C "$stage/view"
+if [ -f "$nvbackup" ]; then
+    printf '%s  %s\n' "$nvhash" "$nvbackup" | sha256sum -c -
+    tar -xf "$nvbackup" -C "$stage/view"
+    chmod 700 "$stage/view/opt/e5/nv"
+    chroot "$stage/view" /usr/bin/python3 - verify < "$nvhelper"
+    chroot "$stage/view" /usr/bin/python3 - update-backup < "$nvhelper"
+fi
 test -s "$stage/view/lib/firmware/wcnmodem.bin"
 test -x "$stage/view/sbin/init"
 test -s "$stage/view/etc/openwrt_release"
@@ -92,4 +164,11 @@ test "$(cat "$stage/view/etc/e5/part-install-token")" = "$token"
 test -s "$stage/view/lib/firmware/wcnmodem.bin"
 test -x "$stage/view/sbin/init"
 umount "$stage/view"; mounted=0
+
+# The final read-only mount must validate NV too, after actual writeback.
+if [ -f "$nvbackup" ]; then
+    mount -t ext4 -o ro,noload "$dev" "$stage/view"; mounted=1
+    chroot "$stage/view" /usr/bin/python3 - verify < "$nvhelper"
+    umount "$stage/view"; mounted=0
+fi
 echo "ROOT-VERIFIED $dev filesystem_blocks=$(od -An -tu4 -j 1028 -N 4 "$dev")"

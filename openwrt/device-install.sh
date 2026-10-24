@@ -71,6 +71,22 @@ if [ -d "$DEST/etc/config" ]; then
     done
 fi
 
+if [ -e "$DEST/opt/e5/nv" ] || [ -L "$DEST/opt/e5/nv" ]; then
+    nvarchive=$(mktemp /tmp/e5-dir.nv.XXXXXX)
+    python3 "$NEW/usr/lib/e5/nv_persistence.py" archive --root "$DEST" > "$nvarchive" || {
+        python3 "$NEW/usr/lib/e5/nv_persistence.py" factory-confirmed > "$nvarchive" || {
+            echo 'NV recovery not confirmed/available; old tree retained' >&2; exit 1;
+        }
+    }
+    tar -xf "$nvarchive" -C "$NEW" &&
+    chmod 700 "$NEW/opt/e5/nv" &&
+    python3 "$NEW/usr/lib/e5/nv_persistence.py" verify --root "$NEW" &&
+    python3 "$NEW/usr/lib/e5/nv_persistence.py" update-backup --root "$NEW" || {
+        echo "NV restore/readback failed; backup retained: $nvarchive" >&2; exit 1;
+    }
+    rm -f "$nvarchive"
+fi
+
 if [ ! -f "$NEW/etc/e5/install.conf" ]; then
     echo "== settings from Debian"
     # nmcli -g escapes ":" and "\\" in what it prints

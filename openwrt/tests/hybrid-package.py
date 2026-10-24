@@ -168,8 +168,8 @@ class NativeStages(unittest.TestCase):
                 self.assertEqual((root / 'calls').read_text().splitlines(), expected)
                 self.assertEqual(result.returncode, 0 if stop is None else 1)
 
-    def test_wrong_model_slot_or_lock_state_is_rejected_before_block_operations(self):
-        for model, slot, unlocked in [('T551M', '_a', 'orange'), ('E5', '_b', 'orange'), ('E5', '_a', 'green')]:
+    def test_wrong_model_or_unusable_slot_is_rejected_before_block_operations(self):
+        for model, slot, unlocked in [('T551M', '_a', 'green'), ('E5', '_b', 'green'), ('E5', '_x', 'green')]:
             with self.subTest(model=model, slot=slot, unlocked=unlocked), tempfile.TemporaryDirectory() as folder:
                 root = Path(folder); package = root / 'package'; (package / 'files').mkdir(parents=True)
                 (package / 'files/tf-install.env').write_text('ANDROID_MODEL=E5\n')

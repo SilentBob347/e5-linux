@@ -236,6 +236,7 @@ def main():
     for n in ('device-install-image.sh', 'device-flash-boot.sh', 'device-install-part.sh', 'device-stage-part-update.sh'):
         shutil.copy2(TOP / 'openwrt' / n, files / n)
     (files / 'part-write.sh').write_bytes((TOP / 'openwrt/bundle/part-write.sh').read_bytes().replace(b'\r\n', b'\n'))
+    (files / 'nv-persistence.py').write_bytes((TOP / 'openwrt/luci-app-t551m/root/usr/lib/e5/nv_persistence.py').read_bytes().replace(b'\r\n', b'\n'))
     for src in ('openwrt/bundle/collect-device-files.sh', 'openwrt/overlay/usr/libexec/e5-gpt', 'tools/android-bootchain.sh'):
         target = files / Path(src).name
         target.write_bytes((TOP / src).read_bytes().replace(b'\r\n', b'\n'))

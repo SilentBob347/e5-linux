@@ -49,7 +49,7 @@ def main():
         '--name','openwrt-backend','--distpath',work/'dist','--workpath',work/'build','--specpath',work,
         '--hidden-import','lz4.block','--hidden-import','xml.etree.ElementTree','--hidden-import','xml.parsers.expat',
         '--hidden-import','tarfile','--hidden-import','gzip','--hidden-import','zlib','--hidden-import','lzma',
-        '--hidden-import','bz2','--hidden-import','http.server','--hidden-import','decimal',
+        '--hidden-import','bz2','--hidden-import','http.server','--hidden-import','decimal','--hidden-import','array',
         '--add-data', str(HERE.parent/'openwrt/luci-app-unisoc-ota/root/usr/lib/unisoc-ota/engine.py')+os.pathsep+'.',
         '--add-data', str(HERE.parent/'openwrt/luci-app-unisoc-ota/root/usr/lib/unisoc-ota/boot.py')+os.pathsep+'.',
         '--add-data', str(HERE.parent/'openwrt/luci-app-unisoc-ota/root/usr/lib/unisoc-ota/rpc.py')+os.pathsep+'.',

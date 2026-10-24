@@ -1,0 +1,8 @@
+{
+  "admin/modem/nv": {
+    "title": "NV 持久化设置",
+    "order": 27,
+    "action": {"type": "view", "path": "mu300/nv"},
+    "depends": {"acl": ["e5-nv"]}
+  }
+}

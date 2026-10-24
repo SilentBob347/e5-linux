@@ -51,7 +51,7 @@ class Userdata(unittest.TestCase):
             with self.subTest(gib=gib), patch.object(flash, 'push'), patch.object(flash, 'su_checked') as checked:
                 flash.stage_userdata_image(2 * GIB, selected)
                 command = checked.call_args.args[1]
-                self.assertEqual(command.split()[-4:],
+                self.assertEqual(command.split()[-5:-1],
                                  [str(2 * GIB), str(selected), '2048', str(selected // (1 << 20))])
         with patch.object(flash, 'push') as upload, self.assertRaises(SystemExit):
             flash.stage_userdata_image(2 * GIB, 2 * GIB + 1)
@@ -69,6 +69,7 @@ class Userdata(unittest.TestCase):
             'install_preflight': lambda: None, 'boot_json': lambda: {'sha256': 'abc'},
             'gz_usize': lambda _: 2 * GIB, 'userdata_free': lambda: 12 * GIB,
             'pull_device_files': lambda *args: 1024, 'push': lambda *args: None,
+            'push_boot': lambda *args: {'sha256': 'abc'},
             'su_checked': checked,
             'stage_userdata_image': lambda *args: (_ for _ in ()).throw(SystemExit('resize failure')),
         }

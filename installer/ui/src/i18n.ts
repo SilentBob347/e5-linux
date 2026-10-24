@@ -1,5 +1,8 @@
 export const strings = {
   zh: {
+    nvRecovery:'是否改用本机原始 NV？', nvRecoveryDesc:'工作 NV 无法保留。继续会放弃 OpenWrt 中的 NV 修改，使用本机 Android 使用的原始 NV；不会改写原始分区。安装进度会自动保存，无需手动导出。',
+    nvRecoveryYes:'输入 yes 后继续', nvRecoveryCancel:'暂不继续', nvRecoveryWaiting:'等待确认 NV 恢复方式；尚未覆盖系统。',
+
     mtpDisabled:'已禁用设备的 MTP 接口', mtpDisabledDesc:'已自动处理 MU300 原厂 USB 冲突，以稳定有线 ADB。ADB、USB 网卡和串口不受影响；不会自动重新启用 MTP。',
     mtpDisableFailed:'未能禁用设备的 MTP 接口', mtpDisableFailedDesc:'Windows 未完成操作。有线 ADB 可能仍不稳定；安装流程将继续。',
     uninstallCancel:'取消卸载', uninstallResetQuestion:'无法保留 Android 数据卸载，是否格式化？',
@@ -36,7 +39,8 @@ export const strings = {
     copied:'日志已复制', exportedLog:'日志已导出', exportedBackup:'事务与备份已导出', imported:'恢复记录已导入', openedData:'事务目录已打开', inspected:'设备检查完成', refreshed:'设备列表已刷新', noDevices:'未发现设备，请连接 USB 并开启调试。', multipleDevices:'检测到多台设备，请明确选择本次操作的设备。', pauseRequested:'已请求暂停，将在安全边界生效。', dismiss:'关闭提示', notifications:'操作通知', deviceStates:{device:'已连接',unauthorized:'等待调试授权',offline:'离线'},
     title:'OpenWrt 安装器', subtitle:'安装、更新与恢复', home:'开始', package:'安装包', choosePackage:'选择安装包目录', verify:'校验安装包', verified:'校验通过',
     device:'设备', refresh:'刷新设备', select:'请选择设备', connect:'通过 USB 连接设备，开启调试并允许电脑访问。', inspect:'检查设备',
-    install:'安装 OpenWrt', installDesc:'选择 TF 卡或独立内置分区，逐步完成安装。', update:'更新 OpenWrt', updateDesc:'保留设置、已有容量和本机固件。',
+    install:'安装 OpenWrt', installDesc:'选择 TF 卡或独立内置分区，逐步完成安装。', update:'更新 OpenWrt', updateDesc:'仅限相同内核和 OpenWrt 系统版本，保留设置、已有容量和本机固件。',
+    updateCompatibilityTitle:'更新前请确认版本一致', updateCompatibilityWarning:'不支持跨内核、跨 OpenWrt 系统版本升级。请确认设备当前运行的内核和 OpenWrt 系统版本与安装包一致；如需更换，请先备份重要数据，再重新安装。',
     resume:'继续未完成的安装', resumeDesc:'从电脑上的安装记录继续，也可用于 Android 重置后续装。', boot:'临时启动已安装的 OpenWrt', bootDesc:'仅本次启动进入 OpenWrt，不改变默认启动设置。',
     advanced:'高级选项', advancedDesc:'重装或卸载内置 OpenWrt，或使用实验性 userdata 镜像。', tf:'TF 卡', part:'独立内置分区', reinstall:'重装已有内置分区', image:'userdata 镜像',
     experimental:'实验性功能：可能损坏 Android F2FS 文件系统。', size:'OpenWrt 分配容量（GiB）', grow:'使用全部已分配的 OpenWrt 分区容量', growHelp:'扩满所选分区。分配大小由上方容量决定。',
@@ -67,6 +71,9 @@ export const strings = {
     noBackend:'安装器启动失败。请完整解压安装包，再运行 OpenWrt-Installer.exe。', error:'操作未完成', elapsed:'阶段用时', bytes:'已传输', speed:'速度', packageHint:'请完整解压安装包；载荷校验通过后才能操作设备。',
   },
   en: {
+    nvRecovery:'Use this device’s original NV?', nvRecoveryDesc:'The working NV could not be preserved. Continuing discards OpenWrt NV changes and uses this device’s original Android NV. Original partitions are not modified. Progress is saved automatically.',
+    nvRecoveryYes:'Type yes to continue', nvRecoveryCancel:'Not now', nvRecoveryWaiting:'Awaiting your NV recovery choice; the system has not been overwritten.',
+
     mtpDisabled:'Device MTP interface disabled', mtpDisabledDesc:'Applied the MU300 USB workaround for stable wired ADB. ADB, USB networking and serial interfaces are unaffected. MTP will not be re-enabled automatically.',
     mtpDisableFailed:'Could not disable the device MTP interface', mtpDisableFailedDesc:'Windows did not complete the operation. Wired ADB may still be unstable; installation will continue.',
     uninstallCancel:'Cancel removal', uninstallResetQuestion:'Cannot preserve Android data. Format instead?',
@@ -103,7 +110,8 @@ export const strings = {
     copied:'Log copied', exportedLog:'Log exported', exportedBackup:'Transaction and backups exported', imported:'Recovery record imported', openedData:'Transaction folder opened', inspected:'Device inspection complete', refreshed:'Device list refreshed', noDevices:'No devices found. Connect USB and enable debugging.', multipleDevices:'Multiple devices found. Select the device for this operation.', pauseRequested:'Pause requested. It will take effect at a safe boundary.', dismiss:'Dismiss notification', notifications:'Operation notifications', deviceStates:{device:'Connected',unauthorized:'Awaiting debugging authorization',offline:'Offline'},
     title:'OpenWrt Installer',subtitle:'Install, update and recover',home:'Start',package:'Package',choosePackage:'Choose package folder',verify:'Verify package',verified:'Verified',
     device:'Device',refresh:'Refresh devices',select:'Select a device',connect:'Connect by USB, enable debugging and authorize this computer.',inspect:'Inspect device',
-    install:'Install OpenWrt',installDesc:'Install step by step on a TF card or an independent internal partition.',update:'Update OpenWrt',updateDesc:'Keep settings, existing capacity and device firmware.',
+    install:'Install OpenWrt',installDesc:'Install step by step on a TF card or an independent internal partition.',update:'Update OpenWrt',updateDesc:'For matching kernel and OpenWrt versions only. Keep settings, existing capacity and device firmware.',
+    updateCompatibilityTitle:'Check versions before updating',updateCompatibilityWarning:'Updates across kernels or OpenWrt system versions are not supported. Confirm that the running kernel and OpenWrt system version match this package. To change either, back up important data and reinstall.',
     resume:'Continue an unfinished installation',resumeDesc:'Continue from a saved installation record, including after an Android reset.',boot:'Boot installed OpenWrt once',bootDesc:'Start OpenWrt for this boot without changing the default system.',
     advanced:'Advanced options',advancedDesc:'Reinstall or remove internal OpenWrt, or use an experimental userdata image.',tf:'TF card',part:'Independent internal partition',reinstall:'Reinstall internal partition',image:'Userdata image',
     experimental:'Experimental: may damage the Android F2FS filesystem.',size:'OpenWrt allocation (GiB)',grow:'Use all capacity allocated to the OpenWrt partition',growHelp:'Grow to fill the selected partition. The allocation above controls its size.',

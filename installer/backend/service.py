@@ -17,7 +17,7 @@ import zipfile
 
 from .adapter import Adapter, installation_committed
 from .package import inspect_package
-from .state import Cancelled, Context, DeviceLock, Pending, RecoveryRequired, Store, compatible
+from .state import Cancelled, Context, DeviceLock, Pending, RecoveryRequired, NVConfirmationRequired, Store, compatible
 from .transport import Adb, wireless_serial
 from .uninstall import Uninstaller, prepare as prepare_uninstall, persist as persist_uninstall
 from .uninstall_growth import PreservationUnavailable
@@ -102,7 +102,7 @@ class Service:
         self.verification_request = None
         self.verification_wake = threading.Event()
         from .ota_desktop import Desktop
-        self.ota = Desktop(self.package_root, self.emit)
+        self.ota = Desktop(self.package_root, self.emit, self.store.base)
 
     def emit(self, kind, data, request_id=None):
         event = {'protocol': 1, 'type': kind, 'data': data}
@@ -268,6 +268,13 @@ class Service:
             return self.public(record)
         if command in ('start', 'resume', 'retry'):
             record = self.store.load(p['transaction'])
+            nv = record.get('nv_recovery', {})
+            if nv.get('state') == 'awaiting':
+                if (p.get('nv_confirmation') != 'yes' or
+                        not secrets.compare_digest(str(p.get('nv_nonce', '')), str(nv['nonce']))):
+                    raise ValueError('Confirm original-NV recovery / 请确认是否放弃工作 NV、改用本机原始 NV')
+                nv['state'] = 'confirmed'
+                nv['confirmed_at'] = time.time()
             if record['status'] == 'completed':
                 return self.public(record)
             if (record['choices'].get('method') == 'uninstall' and record['status'] == 'ready' and
@@ -422,6 +429,9 @@ class Service:
                     result = adapter.execute()
                 self.openwrt_wait_stage(context)
                 self.wait_openwrt(context, adapter)
+        except NVConfirmationRequired:
+            # The decision and progress have already been saved automatically.
+            return
         except Cancelled:
             context.stage(r['stage'], 'cancelled')
         except BaseException as error:

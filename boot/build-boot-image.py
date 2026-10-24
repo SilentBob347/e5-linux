@@ -236,6 +236,9 @@ def main():
     files['etc/boot-args.sh'] = ((HERE / 'boot-args.sh').read_bytes(), stat.S_IFREG | 0o644)
     files['etc/part-prepare.sh'] = ((HERE / 'part-prepare.sh').read_bytes(), stat.S_IFREG | 0o644)
     files['etc/part-update.sh'] = ((HERE / 'part-update.sh').read_bytes(), stat.S_IFREG | 0o644)
+    files['etc/nv-preserve.sh'] = ((HERE / 'nv-preserve.sh').read_bytes(), stat.S_IFREG | 0o644)
+    files['etc/nv-persistence.py'] = ((HERE.parent / 'openwrt/luci-app-t551m/root/usr/lib/e5/nv_persistence.py').read_bytes(),
+                                     stat.S_IFREG | 0o644)
     files['usr/share/e5-gpt'] = ((HERE.parent / 'openwrt/overlay/usr/libexec/e5-gpt').read_bytes(),
                                  stat.S_IFREG | 0o755)
     dirs.update({'usr', 'usr/bin', 'usr/lib', 'usr/lib/ucode', 'usr/share', 'usr/sbin'})

@@ -138,6 +138,10 @@ class RecoveryRequired(RuntimeError):
     pass
 
 
+class NVConfirmationRequired(Exception):
+    """An automatic checkpoint awaiting explicit consent, not a failed write."""
+
+
 class Cancelled(Exception):
     pass
 

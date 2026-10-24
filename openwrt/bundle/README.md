@@ -39,8 +39,8 @@ Public entry names are descriptive English names. Use `.cmd` on Windows or `.sh`
 
 ## You need
 
-* a matching device with an **unlocked bootloader** and Android rooted with **Magisk, KernelSU or KSUNext**; the package supplies its own static ARM64 BusyBox, independently of the root manager;
-* Android running from slot a (as it comes from the factory);
+* a matching device with **root access** through Magisk, KernelSU, KSUNext or an already-root adbd; bootloader unlocking is not a prerequisite. The package supplies its own static ARM64 BusyBox, independently of the root manager;
+* a readable current Android slot; the installer protects it and writes Linux to the other slot;
 * an **SD card of 4 GB or more**: the selected target is erased and used in full,
   without repartitioning or OTA reserve space -- or run
   `launchers/install-to-internal-storage.cmd` / `bash launchers/install-to-internal-storage.sh` and no card is needed;
@@ -83,7 +83,7 @@ Public entry names are descriptive English names. Use `.cmd` on Windows or `.sh`
 
 What it does:
 
-* checks the package, the device (root, slot a, unlocked, the boot control
+* checks the package, the device (root, the current Android slot, the boot control
   block's live BCAB format/CRC and fallback state) and the free space;
 * **pulls this device's own** Wi-Fi/BT/audio firmware and the vendor files
   that boot the baseband off its Android, as `/data/e5linux/device-files.tar`.
@@ -241,7 +241,7 @@ in `boot_b` does not bother Android, which boots from slot a.
 ## Disclaimer
 
 Unofficial software, not affiliated with or endorsed by Rongyue or the makers
-of the device and its chips.  Flashing needs an unlocked bootloader and root,
+of the device and its chips.  Flashing needs root access,
 and can void the warranty, lose data or leave the device unusable; changing
 the network, bands, AT commands or charging can cut the connection or upset
 the device.  Provided "as is", without warranty of any kind: **at your own

@@ -19,7 +19,7 @@ def main():
     source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
     command = [sys.executable, '-m', 'PyInstaller', '--noconfirm', '--onefile', '--console', '--name', 'flash',
                '--distpath', str(work), '--workpath', str(work / 'build'), '--specpath', str(work)]
-    for name in ('xml.etree.ElementTree', 'xml.parsers.expat', 'binascii', 'zlib', 'lzma', 'bz2', 'paramiko'):
+    for name in ('xml.etree.ElementTree', 'xml.parsers.expat', 'binascii', 'zlib', 'lzma', 'bz2', 'paramiko', 'array'):
         command += ['--hidden-import', name]
     subprocess.run(command + [str(source)], cwd=TOP, check=True)
     exe = work / 'flash.exe'

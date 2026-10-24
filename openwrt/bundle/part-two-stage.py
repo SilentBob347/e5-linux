@@ -183,7 +183,7 @@ def start(g, a, node, part_mib, data_mib, grow, raw_size, apn, ssid, key):
     normal = (files / 'boot.img').read_bytes()
     # Refuse stale packages BEFORE modifying boot chain or partitions.
     boot_command(normal, 'e5.root=part')
-    for name in ('ext4-tools.tar', 'part-write.sh'):
+    for name in ('ext4-tools.tar', 'part-write.sh', 'nv-persistence.py'):
         if not (files / name).is_file():
             raise ValueError('new package required: missing ' + name)
     rows = probe(g)
@@ -369,7 +369,7 @@ def installed_settings(g):
     mount = '/data/local/tmp/e5-reinstall-mnt'
     text = g['su'](
         f'rm -rf {mount}; mkdir -p {mount}; '
-        f'if mount -t ext4 -o ro /dev/block/by-name/e5root {mount} 2>/dev/null; then '
+        f'if mount -t ext4 -o ro,noload /dev/block/by-name/e5root {mount} 2>/dev/null; then '
         f'cat {mount}/etc/e5/install.conf 2>/dev/null; umount {mount} 2>/dev/null; '
         f'else echo __E5_NO_OLD_SYSTEM__; fi; true')
     if '__E5_NO_OLD_SYSTEM__' in text:
@@ -392,7 +392,7 @@ def reinstall(g, a):
     boot_b is replaced and slot b armed.  No preparation stage, no wipe.
     """
     files = Path(g['F'])
-    for name in ('ext4-tools.tar', 'part-write.sh'):
+    for name in ('ext4-tools.tar', 'part-write.sh', 'nv-persistence.py'):
         if not (files / name).is_file():
             raise ValueError('new package required: missing ' + name)
     # Refuse a stale package before touching boot_b or the partition.
@@ -483,11 +483,19 @@ def finish(g, a, path, state):
                                 (state['apn'], state['ssid'], state['key'])).encode('utf-8'))
             g['push'](str(settings), g['TMP']+'/e5-install.conf', 'settings')
             g['push'](str(files/'part-write.sh'), g['TMP']+'/e5-part-write.sh', 'partition installer')
+            g['push'](str(files/'nv-persistence.py'), g['TMP']+'/e5-nv-persistence.py', 'NV preservation')
             state['phase'] = 'writing'; save(path, state)
             command = g['android_shell']('/data/local/tmp/e5-part-write.sh',
                        f'{target} {state["need"]} {state["raw_size"]} {int(state["grow"])} {state["token"]}')
+            try:
+                g['su_checked']('检查工作 NV / checking working NV', command+' --nv-check', timeout=600)
+            except (ValueError, SystemExit) as error:
+                if 'E5_NV_PRESERVE_FAILED' not in str(error): raise
+                g['original_nv_recovery'](str(error))
+                command = 'E5_NV_POLICY=original '+command
+                g['su_checked']('准备原机 NV / preparing original NV',command+' --nv-check',timeout=600)
             with g['busy']('写入、扩容并校验独立分区 / installing and verifying root partition'):
-                g['su_checked']('安装独立分区 / install independent root', command, timeout=1800,
+                g['su_checked']('安装独立分区 / install independent root', command+' --nv-ready', timeout=1800,
                                 **({'effect': 'root-part-write'} if g.get('GUI') else {}))
         state['phase'] = 'installed'; save(path, state)
     # No dependency on decrypting /data during OpenWrt boot.

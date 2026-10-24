@@ -158,7 +158,7 @@ class TwoStage(unittest.TestCase):
                 struct.pack_into('<I', image, 40, 4)
                 image[44:1580] = b'e5.part_v=2'.ljust(1536,b'\0')
                 for name, data in [('boot.img',image),('openwrt.ext4.gz',b'payload'),
-                                   ('ext4-tools.tar',b'tools'),('part-write.sh',b'writer')]:
+                                   ('ext4-tools.tar',b'tools'),('part-write.sh',b'writer'),('nv-persistence.py',b'helper')]:
                     (files/name).write_bytes(data)
                 raw = (b'bootonce-bootloader' if command == 'loader' else b'boot-recovery').ljust(2048,b'\0')
                 events=[]; saved=[]
@@ -321,6 +321,7 @@ class TwoStage(unittest.TestCase):
             (files/'openwrt.ext4.gz').write_bytes(b'\0' * 64)
             (files/'ext4-tools.tar').write_bytes(b'\0')
             (files/'part-write.sh').write_bytes(b'\0')
+            (files/'nv-persistence.py').write_bytes(b'helper')
             seen = {}
             # runpy.run_path hands back a copy of the globals, so the module's
             # own namespace is the one to patch.
@@ -384,6 +385,7 @@ class TwoStage(unittest.TestCase):
                 ns=api['finish'].__globals__; original=ns['probe']; ns['probe']=lambda _:rows
                 stages=[]
                 def checked(stage,*args,**kwargs):
+                    if '--nv-check' in args[0]: return 'NV-PREPARED'
                     stages.append(stage)
                     raise SystemExit('injected root-readback or boot-write failure')
                 chain=[]

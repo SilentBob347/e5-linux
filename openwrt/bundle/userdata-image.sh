@@ -18,6 +18,12 @@ mkdir -p "$D"
 [ ! -L "$D" ] && [ ! -e "$image" ] && [ ! -L "$image" ] || {
     echo 'staging image already exists or path is unsafe; inspect before retrying' >&2; exit 1;
 }
+nv_mode=${5:-}
+case "$nv_mode" in ''|--nv-check|--nv-ready) ;; *) exit 2 ;; esac
+nv_phase=0
+nv_token=${E5_NV_TOKEN:?}
+case "$nv_token" in *[!0-9a-f]*) exit 2 ;; esac; [ "${#nv_token}" = 32 ]
+nvdir=/data/local/tmp/e5-nv-images/$nv_token
 stage=$(mktemp -d /data/local/tmp/e5-ext4.XXXXXX)
 mounted=0
 loop_attached=0
@@ -28,6 +34,7 @@ procbound=0
 ok=0
 cleanup() {
     rc=$?
+    if [ "$rc" != 0 ] && [ "$nv_phase" = 1 ]; then echo E5_NV_PRESERVE_FAILED >&2; fi
     trap - EXIT HUP INT TERM
     if [ "$mounted" = 1 ]; then
         umount "$stage/view" || exit 1
@@ -56,6 +63,42 @@ ln -s /proc/mounts "$stage/etc/mtab"
 mount --bind "$D" "$stage/images"
 bound=1
 tools() { name=$1; shift; chroot "$stage" "/usr/sbin/$name" "$@"; }
+
+nv_phase=1
+[ ! -L /data/local/tmp/e5-nv-images ]
+mkdir -p "$nvdir"; chmod 700 /data/local/tmp/e5-nv-images "$nvdir"
+nvbackup=$nvdir/nv.tar
+mkdir "$stage/view"
+if [ "${nv_mode:-}" = --nv-ready ]; then
+    read signature identity checksum < "$nvdir/ready"
+    [ "$signature" = NV-IMAGE-PREPARED ] && [ "$identity" = "$nv_token" ]
+    if [ "$checksum" = none ]; then [ ! -e "$nvbackup" ];
+    else printf '%s  %s\n' "$checksum" "$nvbackup" | sha256sum -c -; fi
+elif [ "${E5_NV_POLICY:-preserve}" = original ]; then
+    cp /data/local/tmp/e5-nv-original.tar "$nvbackup"
+    tar -tf "$nvbackup" >/dev/null
+elif [ -f "$D/openwrt.ext4" ]; then
+    loop=$(desktop_free_loop)
+    losetup -r "$loop" "$D/openwrt.ext4"; loop_attached=1
+    mount -t ext4 -o ro,noload "$loop" "$stage/view"; mounted=1
+    if [ -e "$stage/view/opt/e5/nv" ] || [ -L "$stage/view/opt/e5/nv" ]; then
+        (umask 077; chroot "$stage/view" /usr/bin/python3 - archive < /data/local/tmp/e5-nv-persistence.py > "$nvbackup")
+        tar -tf "$nvbackup" >/dev/null
+        sha256sum "$nvbackup" > "$nvdir/nv.sha256"
+    fi
+    umount "$stage/view"; mounted=0
+    losetup -d "$loop"; loop_attached=0
+fi
+if [ -f "$nvbackup" ]; then
+    checksum=$(sha256sum "$nvbackup" | cut -d' ' -f1)
+    [ "${#checksum}" = 64 ]; case "$checksum" in *[!0-9a-f]*) exit 1 ;; esac
+    sha256sum "$nvbackup" > "$nvdir/nv.sha256"
+else checksum=none; fi
+(umask 077; printf 'NV-IMAGE-PREPARED %s %s\n' "$nv_token" "$checksum" > "$nvdir/ready.part")
+mv "$nvdir/ready.part" "$nvdir/ready"
+sync
+nv_phase=0
+[ "${nv_mode:-}" != --nv-check ] || { echo NV-PREPARED; exit 0; }
 gzip -dc /data/local/tmp/openwrt.ext4.gz > "$image"
 [ "$(stat -c %s "$image")" = "$raw" ]
 chmod 600 "$image"
@@ -86,16 +129,28 @@ tools resize2fs /images/openwrt.ext4.part "${selected_mib}M"
 tools e2fsck -f -n /images/openwrt.ext4.part
 [ "$(stat -c %s "$image")" = "$selected" ]
 sync
-mkdir "$stage/view"
 loop=$(desktop_free_loop)
-losetup -r "$loop" "$image"
+losetup "$loop" "$image"
 loop_attached=1
+if [ -f "$nvbackup" ]; then
+    sha256sum -c "$nvdir/nv.sha256"
+    mount -t ext4 "$loop" "$stage/view"; mounted=1
+    tar -xf "$nvbackup" -C "$stage/view"
+    chmod 700 "$stage/view/opt/e5/nv"
+    chroot "$stage/view" /usr/bin/python3 - verify < /data/local/tmp/e5-nv-persistence.py
+    chroot "$stage/view" /usr/bin/python3 - update-backup < /data/local/tmp/e5-nv-persistence.py
+    sync
+    umount "$stage/view"; mounted=0
+fi
 mount -t ext4 -o ro,noload "$loop" "$stage/view"
 mounted=1
 for name in sbin/init usr/sbin/ModemManager etc/openwrt_release etc/e5/device-profile; do
     chroot "$stage/view" /bin/busybox test -s "/$name"
 done
 chroot "$stage/view" /bin/busybox true
+if [ -f "$nvbackup" ]; then
+    chroot "$stage/view" /usr/bin/python3 - verify < /data/local/tmp/e5-nv-persistence.py
+fi
 umount "$stage/view"
 mounted=0
 losetup -d "$loop"
@@ -108,5 +163,6 @@ umount "$stage/dev"
 devbound=0
 sync
 ok=1
+rm -rf "$nvdir"
 rm -f /data/local/tmp/openwrt.ext4.gz /data/local/tmp/e5-ext4-tools.tar
 echo "USERDATA-IMAGE-OK $selected"

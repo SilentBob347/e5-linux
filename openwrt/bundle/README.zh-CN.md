@@ -35,8 +35,8 @@ Magisk 内刷入完整固件会清空所选 TF 目标（第一分区，无分区
 
 ## 需要
 
-* 与安装包对应的设备，**bootloader 已解锁**，Android 已用 **Magisk、KernelSU 或 KSUNext** 获取 root；安装器使用随包携带的静态 ARM64 BusyBox，不依赖管理器的工具路径；
-* Android 在 slot a 运行（出厂状态就是）；
+* 与安装包对应的设备，Android 已取得 **root 权限**（Magisk、KernelSU、KSUNext 或已具备 root 权限的 adbd）；不要求预先解锁 bootloader。安装器使用随包携带的静态 ARM64 BusyBox，不依赖管理器的工具路径；
+* Android 当前槽位可被正确识别；安装器保护该槽，将 Linux 写入另一槽；
 * 卡槽里插一张 **4 GB 以上的 SD 卡**（建议 8 GB）：所选目标会清空并用满，不修改分区表；
   或者运行 `launchers/install-to-internal-storage.cmd` / `bash launchers/install-to-internal-storage.sh`，无需插卡；
 * 一台 Windows、macOS 或 Linux 电脑，装有：
@@ -73,7 +73,7 @@ Magisk 内刷入完整固件会清空所选 TF 目标（第一分区，无分区
 
 脚本做的事情：
 
-* 检查刷机包完整性、设备状态（root、slot a、已解锁、启动控制块）和剩余空间；
+* 检查刷机包完整性、设备状态（root、当前 Android 槽位、启动控制块）和剩余空间；
   启动控制块按本机 BCAB 格式、CRC 和槽位状态检查，不再要求与打包设备逐字节相同。
 * **从这台设备自己的 Android 里提取** Wi-Fi/蓝牙/音频固件和启动基带所需的 vendor 文件，打包成
   `/data/e5linux/device-files.tar`。刷机包里不带任何设备的固件：这些文件属于厂商，而且带有
@@ -211,7 +211,7 @@ Android userdata（包括加密 data）和 GPT 均不修改，10 GiB 分区仍�
 
 ## 免责声明
 
-本刷机包为非官方软件，与荣悦及设备、芯片厂商无关，也未获其认可。刷机需要解锁 bootloader 和
+本刷机包为非官方软件，与荣悦及设备、芯片厂商无关，也未获其认可。刷机需要
 root，可能导致设备失去保修、数据丢失或无法正常使用；修改网络、频段、AT 指令和充电设置也可能
 导致断网或设备异常。本软件按“原样”提供，不作任何担保，**风险由使用者自行承担**。刷机前请备份
 重要数据；所选频段和无线设置请遵守当地法规。
