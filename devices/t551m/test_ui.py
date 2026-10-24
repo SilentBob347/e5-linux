@@ -17,6 +17,23 @@ loader.exec_module(sms)
 
 
 class AdaptationTest(unittest.TestCase):
+    def test_sms_preview_preserves_text_and_tracks_multipart_tail(self):
+        for prefix in ('中文摘要', ':0 正文原本就有此前缀', '引号"反斜杠\\换行\n'):
+            body = prefix + '长短信分片内容' * 40
+            row = dict(id=1000000001, direction='in', number='10000', card=0,
+                       time='2026-10-24T12:00:00+08:00', text=body, unread=False)
+            with patch.object(sms, 'messages', return_value=[row]), patch.object(sms, 'run') as run:
+                before = sms.main('list', {})['msgs'][0]
+                row['text'] += '末尾补齐'
+                after = sms.main('list', {})['msgs'][0]
+                unchanged = sms.main('list', {})['msgs'][0]
+                run.assert_not_called()
+            self.assertEqual(before['preview'], body[:100])
+            self.assertEqual(after['preview'], before['preview'])
+            self.assertEqual(after['time'], row['time'])
+            self.assertNotEqual(before['revision'], after['revision'])
+            self.assertEqual(after['revision'], unchanged['revision'])
+
     def test_lte_identity_matches_registration(self):
         script = (ROOT / 'cell').read_text()
         fragment = script[script.index('sp_fragment()'):script.index('\nnr_neighbours()')]
@@ -42,6 +59,22 @@ class AdaptationTest(unittest.TestCase):
         with patch.object(sms, 'messages', return_value=[{'id': 1000000001}]), patch.object(sms, 'run') as run:
             with self.assertRaises(ValueError):
                 sms.main('delete', {'id':'all', 'sim':1})
+            run.assert_not_called()
+
+    def test_explicit_sim_delete_mode_and_failure(self):
+        for mode in (True, 1, '1'):
+            with self.subTest(mode=mode), patch.object(sms, 'hide') as hide, patch.object(sms, 'run', return_value={'ok': True}) as run:
+                self.assertEqual(sms.main('delete', {'id': '1000000001', 'sim': mode}), {'ok': 1})
+                run.assert_called_once_with([sms.TOOL, 'delete', '1000000001'])
+                hide.assert_called_once_with([1000000001])
+            with patch.object(sms, 'hide') as hide, patch.object(sms, 'run', side_effect=RuntimeError('SIM delete failed')):
+                with self.assertRaises(RuntimeError):
+                    sms.main('delete', {'id': '1000000001', 'sim': mode})
+                hide.assert_not_called()
+        with patch.object(sms, 'hide') as hide, patch.object(sms, 'run') as run:
+            with self.assertRaises(ValueError):
+                sms.main('delete', {'id': '1000000001', 'sim': 'typo'})
+            hide.assert_not_called()
             run.assert_not_called()
 
     def test_sms_body_is_file_not_shell_code(self):

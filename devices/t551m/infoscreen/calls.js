@@ -54,6 +54,11 @@ window.T551MCalls = (() => {
         if(latest)listener(latest);
         return ()=>listeners.delete(listener);
     }
+    function screenWake() {
+        // An incoming call with wake=false is still retained by the stream.
+        // Manual/external wake must show it even if no new call event arrives.
+        if (!stopped && !blank && latest) update(latest);
+    }
     async function pollCalls() {
         clearTimeout(pollTimer);pollTimer=null;
         if(stopped || streaming || polling)return;
@@ -87,5 +92,5 @@ window.T551MCalls = (() => {
     }
     window.addEventListener('pagehide',()=>{stopped=true;stream?.close();clearTimeout(pollTimer);listeners.clear();});
     window.addEventListener('pageshow',event=>{if(event.persisted){stopped=false;booted=false;boot();}});
-    return {active,update,attach,boot,subscribe};
+    return {active,update,attach,boot,subscribe,screenWake};
 })();

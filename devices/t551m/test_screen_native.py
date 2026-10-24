@@ -38,13 +38,31 @@ class ScreenPower(unittest.TestCase):
 
     def test_dark_wake_order_and_repeated_operations(self):
         self.call('set','0');self.call('set','180')
-        self.assertEqual(self.trace.read_text().splitlines(),['inhibited=1','brightness=0','inhibited=0','brightness=180'])
+        self.assertEqual(self.trace.read_text().splitlines(),['inhibited=1','inhibited=0','brightness=180'])
         for _ in range(4):self.call('set','0');self.call('set','180')
         self.assertEqual(self.touch.read_text(),'0\n')
 
     def test_explicit_touch_off_and_config_change(self):
         self.setting.write_text('0\n');self.call('set','255');self.assertEqual(self.touch.read_text(),'1\n')
         self.setting.write_text('1\n');self.call('sync');self.assertEqual(self.touch.read_text(),'0\n')
+
+    def test_same_brightness_skips_driver_write_but_reconciles_touch(self):
+        self.call('set','120')
+        self.trace.write_text('')
+        self.setting.write_text('0\n');self.call('set','120')
+        self.assertEqual(self.trace.read_text().splitlines(),['inhibited=1'])
+        self.setting.write_text('1\n');self.call('set','120')
+        self.assertEqual(self.trace.read_text().splitlines(),['inhibited=1','inhibited=0'])
+        self.call('set','120')
+        self.assertEqual(self.trace.read_text().splitlines(),['inhibited=1','inhibited=0'])
+
+    def test_each_backlight_is_reconciled_independently(self):
+        second=self.root/'sys/class/backlight/second/brightness'
+        second.parent.mkdir();second.write_text('20\n')
+        self.light.write_text('120\n')
+        self.call('set','120')
+        self.assertEqual(second.read_text(),'120\n')
+        self.assertEqual(self.trace.read_text().splitlines(),['brightness=120'])
 
     def test_driver_names_and_indirect_input(self):
         for name in ('tlsc6x_touch','fts_ts','other-panel'):

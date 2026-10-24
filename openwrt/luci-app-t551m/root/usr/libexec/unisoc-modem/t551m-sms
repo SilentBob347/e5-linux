@@ -5,6 +5,7 @@ No second AT reader, inbox or forwarding worker. Local-only deletion hides
 messages in this UI; explicit SIM deletion uses the existing identity checks.
 """
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -65,7 +66,8 @@ def main(op, args):
                     msgs=[dict(id=str(m['id']), status='unread' if m.get('unread') else 'read',
                                card=m.get('card'), sim=m.get('sim') or '',
                                dir='mt' if m['direction'] == 'in' else 'mo', peer=m['number'],
-                               time=m.get('time') or '', preview=m.get('text', '')[:100])
+                               time=m.get('time') or '', preview=m.get('text', '')[:100],
+                               revision=hashlib.sha256(m.get('text', '').encode('utf-8')).hexdigest())
                           for m in rows[(page - 1) * 10:page * 10]])
     if op == 'show':
         identifier = int(args['id'])
@@ -92,8 +94,11 @@ def main(op, args):
         return dict(ok=1, reply='sent')
     if op == 'delete':
         value = str(args['id'])
+        mode = args.get('sim', '0')
+        if mode not in (None, '', False, True, 0, 1, '0', '1'):
+            raise ValueError('Invalid deletion mode')
         ids = [m['id'] for m in messages()] if value == 'all' else [int(value)]
-        if str(args.get('sim', '0')) == '1':
+        if mode in (True, 1, '1'):
             if value == 'all':
                 raise ValueError('Bulk SIM deletion is not supported')
             run([TOOL, 'delete', str(ids[0])])

@@ -1,19 +1,21 @@
 """Validate one-time AP address migration without radio or UCI access (Linux)."""
 from pathlib import Path
 import os
+import runpy
 import shutil
 import subprocess
 import tempfile
 import unittest
 
 SOURCE=Path(__file__).with_name('wifi-address-defaults').read_text()
+PROFILES=runpy.run_path(str(Path(__file__).resolve().parents[2]/'tools/build-release.py'))['PROFILES']
 
 
 class AddressMigration(unittest.TestCase):
-    def check(self, configured='', driver='40:45:da:01:02:03', phy='00:00:00:00:00:00'):
+    def check(self, configured='', driver='40:45:da:01:02:03', phy='00:00:00:00:00:00', profile='t551m'):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)
-            (root/'profile').write_text('t551m\n')
+            (root/'profile').write_text(profile+'\n')
             radio=root/'sys/wlan0/phy80211'
             radio.mkdir(parents=True)
             if phy is not None:(radio/'macaddress').write_text(phy+'\n')
@@ -58,6 +60,23 @@ logger() { :; }
 
     def test_zero_configured_address_is_repaired(self):
         self.assertIn('uci set ',self.check(configured='00:00:00:00:00:00').stdout)
+
+    def test_every_release_profile_gets_the_same_conditional_migration(self):
+        for profile in PROFILES:
+            with self.subTest(profile=profile):
+                result=self.check(profile=profile)
+                self.assertEqual(result.returncode,0,result.stderr)
+                self.assertIn('uci set wireless.default_radio0.macaddr=40:45:da:01:02:03',result.stdout)
+                self.assertEqual(self.check(profile=profile,configured='02:aa:bb:cc:dd:ee').stdout,'')
+                self.assertEqual(self.check(profile=profile,phy='40:45:da:11:22:33').stdout,'')
+                invalid=self.check(profile=profile,driver='41:45:da:01:02:03')
+                self.assertEqual(invalid.returncode,1)
+                self.assertEqual(invalid.stdout,'')
+
+    def test_foreign_profile_is_untouched(self):
+        result=self.check(profile='foreign')
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(result.stdout,'')
 
 
 if __name__=='__main__':unittest.main()

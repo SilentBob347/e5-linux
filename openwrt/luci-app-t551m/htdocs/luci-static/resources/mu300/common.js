@@ -126,10 +126,21 @@ function waitLockJob(started) {
 		check();
 	});
 }
-var callSmsList = rpc.declare({ object: 'mu300dash', method: 'sms_list', params: [ 'page' ], expect: { '': {} } });
-var callSmsShow = rpc.declare({ object: 'mu300dash', method: 'sms_show', params: [ 'id' ], expect: { '': {} } });
+var callSmsList = (function() {
+	var call = rpc.declare({ object: 'mu300dash', method: 'sms_list', params: [ 'page' ], expect: { '': {} } });
+	return function(page) { return call(String(page || 1)); };
+})();
+var callSmsShow = (function() {
+	var call = rpc.declare({ object: 'mu300dash', method: 'sms_show', params: [ 'id' ], expect: { '': {} } });
+	return function(id) { return call(String(id)); };
+})();
 var callSmsSend = rpc.declare({ object: 'mu300dash', method: 'sms_send', params: [ 'num', 'text', 'card' ], expect: { '': {} } });
-var callSmsDel  = rpc.declare({ object: 'mu300dash', method: 'sms_delete', params: [ 'id', 'sim' ], expect: { '': {} } });
+var callSmsDel = (function() {
+	var call = rpc.declare({ object: 'mu300dash', method: 'sms_delete', params: [ 'id', 'sim' ], expect: { '': {} } });
+	return function(id, sim) {
+		return call(String(id), sim === true || sim === 1 || sim === '1' ? '1' : '0');
+	};
+})();
 var callSmsSync = rpc.declare({ object: 'mu300dash', method: 'sms_sync', expect: { '': {} } });
 var callForwardGet = rpc.declare({ object: 'mu300dash', method: 'forward_get', params: [ 'profile' ], expect: { '': {} } });
 var callForwardStatus = rpc.declare({ object: 'mu300dash', method: 'forward_status', params: [ 'profile' ], expect: { '': {} } });
@@ -762,6 +773,13 @@ var DASH_I18N = {
     'CPU0 保持在线': ['CPU0 stays online', 'CPU0 açık kalır'],
     'CPU policy is offline; enable its cores before changing frequency': ['CPU policy is offline; enable its cores before changing frequency', 'CPU kümesi çevrimdışı; frekansı değiştirmeden önce çekirdeklerini etkinleştirin'],
     '恢复启动基线': ['Restore boot baseline', 'Başlangıç temelini geri yükle'],
+    "CPU0 深度休眠": ["CPU0 deep idle", "CPU0 derin boşta bekleme"],
+    "允许 CPU0 深度休眠": ["Allow CPU0 deep idle", "CPU0 derin boşta beklemesine izin ver"],
+    "开启有利于空闲省电；关闭优先低延迟。仅改变 CPU0 深层空闲状态，WFI 和其他核心保持原设置。": ["Enable to favor idle power savings; disable to favor low latency. Only CPU0 deep states change; WFI and other cores keep their settings.", "Boştayken enerji tasarrufu için açın; düşük gecikme için kapatın. Yalnızca CPU0 derin durumları değişir; WFI ve diğer çekirdek ayarları korunur."],
+    "设置即时生效并在开机后保留。": ["Changes apply immediately and persist across reboots.", "Ayarlar hemen uygulanır ve yeniden başlatmalarda korunur."],
+    "设置已应用并保存，重启后继续生效。": ["Settings applied and saved for future boots.", "Ayarlar uygulandı ve sonraki açılışlar için kaydedildi."],
+    "无法读取 CPU0 深度休眠状态": ["Cannot read CPU0 deep idle state", "CPU0 derin boşta bekleme durumu okunamıyor"],
+    "CPU0 深度休眠设置失败": ["CPU0 deep idle change failed", "CPU0 derin boşta bekleme ayarı başarısız"],
     "CPU 核心开关": ["CPU core controls", "CPU çekirdek denetimleri"],
     "按内核能力逐核开启或关闭。CPU0 保持在线；关闭核心会降低并行处理能力，是否省电取决于实际负载。": ["Enable or disable individual cores supported by the kernel. CPU0 stays online. Disabling cores reduces parallel capacity; power savings depend on the workload.", "Çekirdek desteğine göre CPU çekirdeklerini açın veya kapatın. CPU0 açık kalır. Çekirdek kapatmak paralel kapasiteyi azaltır; enerji tasarrufu yüke bağlıdır."],
     "仅保存核心开关；不改变调频、调压和温控配置。": ["Save core states only; frequency, voltage and thermal settings are unchanged.", "Yalnızca çekirdek durumlarını kaydeder; frekans, voltaj ve sıcaklık ayarları değişmez."],

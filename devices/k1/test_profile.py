@@ -137,7 +137,7 @@ int main(void) {
                 target = root / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text('offline base fixture\n')
-            for name in ('e5-bt', 'e5-sipc-wwan'):
+            for name in ('e5-vendor', 'e5-bt', 'e5-sipc-wwan'):
                 (root / 'etc/init.d' / name).write_bytes(
                     (TOP / 'openwrt/overlay/etc/init.d' / name).read_bytes())
             client = Path(directory) / 'at-client'

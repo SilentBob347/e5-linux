@@ -290,7 +290,6 @@ window.T551M = (() => {
             el('tf-'+span+'-rx').parentElement.insertAdjacentHTML('beforebegin', `<div class="traffic-used" id="tf-${span}-used">—</div>`);
             el('tf-'+span+'-lan-rx').parentElement.hidden = true;
         }
-        setInterval(() => { if (!dark) clock(); }, 1000);
         lock();
         apply();
     }
@@ -520,6 +519,7 @@ window.T551M = (() => {
         if (!on && config.lock_enabled === false) finishUnlock();
         apply();
         if (!on && last) status(last);
+        if (!on) window.T551MCalls?.screenWake?.();
     }
     function start(x, y, count) {
         if (count != 1) { resetGesture(); return; }
@@ -766,5 +766,5 @@ window.T551M = (() => {
             row.classList.toggle('has-value', !!row.querySelector('.sv')?.textContent.trim());
         }
     }
-    return {boot, status, power, page:pageChanged, position, step, isLocked:lockedNow, operator, amount, speed, app, appClosed, settings, attachKeys, refreshUsage};
+    return {boot, status, power, clock, page:pageChanged, position, step, isLocked:lockedNow, operator, amount, speed, app, appClosed, settings, attachKeys, refreshUsage};
 })();

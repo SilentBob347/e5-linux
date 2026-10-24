@@ -119,17 +119,54 @@ async def serve():
         # Invalidated D-Bus properties require GetAll of the owner's cache.
         # This never requests a modem refresh or sends a command to the CP.
         try:
-            properties = (await call(owner, path, PROPERTIES, 'GetAll', 's', [interface]))[0]
-        except (RuntimeError, asyncio.TimeoutError):
-            return  # Removal can race GetAll; the fields remain unknown.
-        if mirror.owner != owner:
+            for delay in (0, .25, 1):
+                if delay:
+                    await asyncio.sleep(delay)
+                try:
+                    properties = (await call(owner, path, PROPERTIES, 'GetAll', 's', [interface]))[0]
+                    break
+                except (RuntimeError, asyncio.TimeoutError):
+                    continue  # A newly announced object may not be readable yet.
+            else:
+                return  # Keep unavailable fields unknown; never invent identity.
+            if mirror.owner != owner:
+                return
+            args = (path, PROPERTIES, 'PropertiesChanged', [interface, properties, []])
+            if loading:
+                pending.append(args)
+            else:
+                mirror.apply(*args)
+                hydrate_properties(owner)
+                schedule()
+        finally:
+            key = (path, interface)
+            if property_tasks.get(key) is asyncio.current_task():
+                property_tasks.pop(key)
+
+    def hydrate_properties(owner):
+        # MM's SIM objects, like its Calls, need not be in GetManagedObjects.
+        # Read only the referenced SIM's cached properties, once per identity
+        # transition. Missing/invalidated fields do not justify AT or polling.
+        if not owner:
             return
-        args = (path, PROPERTIES, 'PropertiesChanged', [interface, properties, []])
-        if loading:
-            pending.append(args)
-        else:
-            mirror.apply(*args)
-            schedule()
+        for modem_path, interfaces in list(mirror.objects.items()):
+            modem = interfaces.get(MM + '.Modem')
+            if modem is None:
+                continue
+            key = (modem_path, MM + '.Modem')
+            # Any newer property event cancels an old GetAll. If it only
+            # updates State, it must not strand a still-invalidated Sim (or
+            # other required property) without a replacement read.
+            if not Mirror.FIELDS[key[1]] <= modem.keys() and key not in property_tasks:
+                property_tasks[key] = loop.create_task(refresh_property(owner, *key))
+            path = modem.get('Sim')
+            if not isinstance(path, str) or not path.startswith(ROOT + '/SIM/'):
+                continue
+            interface = MM + '.Sim'
+            props = mirror.objects.get(path, {}).get(interface, {})
+            key = (path, interface)
+            if not Mirror.FIELDS[interface] <= props.keys() and key not in property_tasks:
+                property_tasks[key] = loop.create_task(refresh_property(owner, *key))
 
     async def load(owner):
         nonlocal loading, pending
@@ -150,6 +187,7 @@ async def serve():
             mirror.apply(*args)
         pending = []
         loading = False
+        hydrate_properties(owner)
         schedule()
 
     def message(msg):
@@ -185,11 +223,18 @@ async def serve():
                 task.cancel()
             if set(msg.body[2]) & Mirror.FIELDS[msg.body[0]]:
                 property_tasks[key] = loop.create_task(refresh_property(mirror.owner, *key))
+        elif msg.member in ('InterfacesAdded', 'InterfacesRemoved'):
+            # Interface lifecycle events supersede an earlier GetAll too.
+            for interface in msg.body[1]:
+                task = property_tasks.pop((msg.body[0], interface), None)
+                if task:
+                    task.cancel()
         args = (msg.path, msg.interface, msg.member, msg.body)
         if loading:
             pending.append(args)
         else:
             mirror.apply(*args)
+            hydrate_properties(mirror.owner)
             schedule()
 
     bus.add_message_handler(message)

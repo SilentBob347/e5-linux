@@ -4,6 +4,7 @@
 'require poll';
 'require mu300.common as M';
 'require mu300.cpu-cores as Cores';
+'require mu300.cpu-idle as Idle';
 
 /* CPU layout adapted from mu300-linux (local revision 25f8d0c).
  * MIT License
@@ -153,7 +154,7 @@ return view.extend({
         const head = node('div','mud-cpu-title');
         head.append(node('h2',null,text('CPU 设置','CPU settings')),
             node('p','mud-note',text('频率 · 电压 · 温控','Frequency · Voltage · Thermal')));
-        this.content.append(head,Cores.render());
+        this.content.append(head,Cores.render(),Idle.render());
         if (!s.ok || !s.available) this.content.append(node('div','mud-card',M.translate(s.error) || text('CPU 调频驱动尚未就绪','The CPU frequency driver is not ready')));
         const section = (title,badge) => {
             const card = node('section','mud-card mud-cpu-section'), head = node('div','mud-cpu-heading');

@@ -16,6 +16,7 @@ import unittest
 PROTO, LUCI = [Path(p).read_text() for p in sys.argv[1:3]]
 del sys.argv[1:3]
 HERE = Path(__file__).resolve().parent
+PROFILES = runpy.run_path(str(HERE.parents[1]/'tools/build-release.py'))['PROFILES']
 patch_root = runpy.run_path(str(HERE / 'network-startup.py'))['patch_root']
 LOADER = (HERE.parents[1] / 'openwrt/overlay/etc/init.d/e5-sipc-wwan').read_text()
 
@@ -121,7 +122,7 @@ run_eps() {
         marker = self.root / 'migrated'
         script = script.replace('/etc/e5/t551m-network-startup-v1', str(marker))
         harness = '''
-cat() { echo t551m; }
+cat() { echo "$PROFILE"; }
 python3() { :; }
 uci() {
     case "$*" in
@@ -131,15 +132,20 @@ uci() {
     esac
 }
 '''
-        for mode in ('custom', '', 'default'):
-            marker.unlink(missing_ok=True)
-            env = dict(os.environ, MODE=mode)
-            out = subprocess.run(['busybox', 'sh', '-c', harness + script], env=env,
-                                 capture_output=True, text=True, check=True).stdout
-            self.assertEqual('set network.wan.init_epsbearer=keep' in out, mode == 'default')
-            again = subprocess.run(['busybox', 'sh', '-c', harness + script], env=env,
-                                   capture_output=True, text=True, check=True).stdout
-            self.assertEqual(again, '')
+        for profile in (*PROFILES, 'foreign'):
+            for mode in ('custom', 'connection', 'keep', '', 'default'):
+                with self.subTest(profile=profile, mode=mode):
+                    marker.unlink(missing_ok=True)
+                    env = dict(os.environ, MODE=mode, PROFILE=profile)
+                    out = subprocess.run(['busybox', 'sh', '-c', harness + script], env=env,
+                                         capture_output=True, text=True, check=True).stdout
+                    supported = profile != 'foreign'
+                    self.assertEqual('set network.wan.init_epsbearer=keep' in out,
+                                     supported and mode == 'default')
+                    self.assertEqual(marker.exists(), supported)
+                    again = subprocess.run(['busybox', 'sh', '-c', harness + script], env=env,
+                                           capture_output=True, text=True, check=True).stdout
+                    self.assertEqual(again, '')
 
     def test_default_dial_does_not_overwrite_pre_dial_mode(self):
         text = (self.root / 'lib/netifd/proto/modemmanager.sh').read_text()
@@ -161,7 +167,7 @@ run_modes() {
 
     def test_pdp_retry_shared_across_profiles(self):
         path = self.root / 'lib/netifd/proto/modemmanager.sh'
-        for profile in ('e5', 't551m', 'm8', 't512n'):
+        for profile in PROFILES:
             with self.subTest(profile=profile):
                 path.write_text(PROTO)
                 patch_root(self.root, profile)

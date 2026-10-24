@@ -50,6 +50,13 @@ def at(card, command):
     return execute(['e5-at', f'AT+SPACTCARD={card};+{command}'])
 
 
+def restore_context(card, operation):
+    try:
+        at(card, 'CFUN?')
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
+        logging.warning('Could not restore AT context after SMS %s: %s', operation, error)
+
+
 def atomic(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + f'.{os.getpid()}.part')
@@ -286,7 +293,9 @@ def scan_locked(cards):
                 except (RuntimeError, ValueError, subprocess.TimeoutExpired) as error:
                     data['slots'][str(card)] = {'ok': False, 'updated': int(time.time()), 'error': str(error)}
         finally:
-            at(own, 'CFUN?')  # restore the AT context for basic dial/send commands
+            # Received messages have already been durably committed. Failure
+            # of this cleanup must not skip their one-time alerts/forwards.
+            restore_context(own, 'scan')
         data['updated'] = int(time.time()); save(data)
     alert(alerts, data); forward(forwards)
 
@@ -350,7 +359,7 @@ def delete_locked(identifier):
             save(data)
             return {'ok': True}
         finally:
-            at(own, 'CFUN?')
+            restore_context(own, 'delete')
 
 
 class Events:

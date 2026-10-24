@@ -40,7 +40,8 @@ struct App {
         *desired_key;
     Json *objects, *calls, *settings, *status, *bt_status, *power;
     GQueue events;
-    guint epoch;
+    guint epoch, object_revision;
+    GHashTable *call_reads;
     bool loading, valid, overflow, closing, dirty, working, config_dirty, bt_working,
         hardware_ready, bus_connecting, bt_retry_after_pcm;
     VoiceHardware *hardware;
@@ -64,6 +65,7 @@ struct App {
 };
 static void update(App *a);
 static void load_objects(App *a);
+static void load_call(App *a, const char *path);
 static void bt_release(App *a);
 static GQuark domain(void) {
     return g_quark_from_static_string("e5-voice-native");
@@ -874,13 +876,15 @@ static void observed(App *a) {
         if (!numeric)
             continue;
         Json *p = jget(jget(a->objects, path), CALL_IF);
-        if (!p) {
+        if (!p || !jget(p, "State") || !jget(p, "Direction")) {
             json_object_put(calls);
             a->valid = false;
             g_free(a->observer_error);
             a->observer_error = g_strdup("Waiting for complete call state");
             publish(a);
-            load_objects(a);
+            /* MM exports Call objects separately from its managed modem
+             * objects. Repeating GetManagedObjects cannot fill this gap. */
+            load_call(a, path);
             return;
         }
         int state = jint(p, "State", 0), reason = jint(p, "StateReason", 0),
@@ -915,6 +919,71 @@ static void observed(App *a) {
     update(a);
     publish(a);
 }
+typedef struct {
+    App *app;
+    guint epoch, revision;
+    char *path;
+} CallRead;
+static void call_done(GObject *object, GAsyncResult *res, gpointer data) {
+    CallRead *read = data;
+    App *a = read->app;
+    GError *error = NULL;
+    GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(object), res, &error);
+    if (g_hash_table_lookup(a->call_reads, read->path) == read)
+        g_hash_table_remove(a->call_reads, read->path);
+    if (a->closing || read->epoch != a->epoch)
+        goto out;
+    if (read->revision != a->object_revision) {
+        /* A signal or newer modem snapshot overtook this read. Never put
+         * an old ringing/active state back over a newer call transition. */
+        observed(a);
+        goto out;
+    }
+    if (error || !reply) {
+        /* The existing bounded recovery timer retries incomplete state;
+         * an unavailable Call must not create an immediate request loop. */
+        g_free(a->observer_error);
+        a->observer_error = g_strdup("Call properties unavailable");
+        publish(a);
+        goto out;
+    }
+    GVariant *value = g_variant_get_child_value(reply, 0);
+    Json *properties = variant(value, 0);
+    g_variant_unref(value);
+    if (!properties || !json_object_is_type(properties, json_type_object) ||
+        !jget(properties, "State") || !jget(properties, "Direction")) {
+        json_free(properties);
+        goto out;
+    }
+    Json *interfaces = jget(a->objects, read->path);
+    if (!interfaces) {
+        interfaces = json_object_new_object();
+        json_object_object_add(a->objects, read->path, interfaces);
+    }
+    json_object_object_add(interfaces, CALL_IF, properties);
+    observed(a);
+out:
+    if (reply)
+        g_variant_unref(reply);
+    g_clear_error(&error);
+    g_free(read->path);
+    g_free(read);
+}
+static void load_call(App *a, const char *path) {
+    if (a->closing || !a->bus || !a->owner || !*a->owner ||
+        g_hash_table_contains(a->call_reads, path))
+        return;
+    CallRead *read = g_new0(CallRead, 1);
+    read->app = a;
+    read->epoch = a->epoch;
+    read->revision = a->object_revision;
+    read->path = g_strdup(path);
+    g_hash_table_insert(a->call_reads, g_strdup(path), read);
+    g_dbus_connection_call(a->bus, a->owner, path, "org.freedesktop.DBus.Properties",
+                          "GetAll", g_variant_new("(s)", CALL_IF),
+                          G_VARIANT_TYPE("(a{sv})"), G_DBUS_CALL_FLAGS_NO_AUTO_START,
+                          3000, NULL, call_done, read);
+}
 static void event_free(Event *e) {
     g_free(e->path);
     g_free(e->member);
@@ -922,6 +991,7 @@ static void event_free(Event *e) {
     g_free(e);
 }
 static void apply_event(App *a, Event *event) {
+    a->object_revision++;
     GVariant *v = event->value;
     if (!strcmp(event->member, "InterfacesAdded")) {
         const char *path;
@@ -1005,6 +1075,7 @@ static void snapshot_done(GObject *object, GAsyncResult *res, gpointer data) {
     }
     if (a->objects)
         json_object_put(a->objects);
+    a->object_revision++;
     a->objects = current;
     while (!g_queue_is_empty(&a->events)) {
         Event *event = g_queue_pop_head(&a->events);
@@ -1349,7 +1420,8 @@ static gboolean heartbeat(gpointer data) {
     App *a = data;
     if (a->closing)
         return G_SOURCE_REMOVE;
-    if (!a->valid && !a->loading && a->owner && *a->owner)
+    if (!a->valid && !a->loading && !g_hash_table_size(a->call_reads) &&
+        a->owner && *a->owner)
         load_objects(a);
     char *ready = native_path("/run/e5-audio.ready");
     bool audio_ready = g_file_test(ready, G_FILE_TEST_EXISTS);
@@ -1407,6 +1479,7 @@ int main(void) {
     GError *error = NULL;
     a.loop = g_main_loop_new(NULL, FALSE);
     a.objects = json_object_new_object();
+    a.call_reads = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
     a.calls = json_object_new_array();
     Json *defaults = json_tokener_parse(default_settings);
     if (!write_json(RUN "settings.json", defaults)) {
@@ -1443,7 +1516,7 @@ int main(void) {
     g_message("Native voice observer ready; no call-control commands");
     g_main_loop_run(a.loop);
     /* Complete owned asynchronous work before releasing mixer state or memory. */
-    while (a.working || a.bt_working)
+    while (a.working || a.bt_working || g_hash_table_size(a.call_reads))
         g_main_context_iteration(NULL, TRUE);
     if (a.dsp_started) {
         pthread_cancel(a.dsp_thread);
@@ -1468,6 +1541,7 @@ int main(void) {
     screen_http_free(a.http);
     if (a.bus)
         g_object_unref(a.bus);
+    g_hash_table_unref(a.call_reads);
     close(lock);
     return 0;
 }

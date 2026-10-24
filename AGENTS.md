@@ -13,6 +13,10 @@
 - Apply shared fixes to shared build/update paths. Keep charger-chip and board
   differences in the model profiles, and do not call an offline test a successful
   hardware validation.
+- Before rolling back a deployed change, establish its relationship to the
+  fault from evidence. A fault reported after deployment alone is not grounds
+  for rollback. Capture the failing state and identify the implicated change
+  first; preserve unrelated working changes.
 
 # Local builds and release packaging
 

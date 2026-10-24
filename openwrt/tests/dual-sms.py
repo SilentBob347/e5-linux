@@ -254,5 +254,24 @@ class Inbox(unittest.TestCase):
             scan.assert_not_called()
             receiver.scan({0,1});scan.assert_called_once()
 
+    def test_cleanup_failure_does_not_drop_committed_sms_alert_or_forward(self):
+        data=self.fresh();receiver.ingest(data,1,'card2',[],1)
+        messages=sms_pdu.assemble([incoming('new message')])
+        with tempfile.TemporaryDirectory() as directory,patch.object(receiver,'RUN',Path(directory)),patch.object(receiver,'load',return_value=data),patch.object(receiver,'save') as save,patch.object(receiver,'alert') as alert,patch.object(receiver,'forward') as forward,patch.object(receiver,'execute',return_value='No calls were found'),patch.object(receiver,'current_card',return_value=0),patch.object(receiver,'read_card',return_value=('card2',messages)),patch.object(receiver,'archive_capacity'),patch.object(receiver,'at',side_effect=RuntimeError('owner temporarily unavailable')),self.assertLogs(level='WARNING'):
+            receiver.scan({1})
+        identifier=data['messages'][0]['id']
+        self.assertTrue(data['messages'][0]['unread']);self.assertTrue(save.called)
+        alert.assert_called_once_with([identifier],data);forward.assert_called_once_with([identifier])
+
+    def test_successful_delete_stays_successful_when_context_cleanup_fails(self):
+        data=self.fresh();live=sms_pdu.assemble([incoming('delete fixture',7)])
+        receiver.ingest(data,1,'original',live,1)
+        def at(card,command):
+            if command=='CFUN?':raise RuntimeError('owner temporarily unavailable')
+            self.assertEqual((card,command),(1,'CMGD=7'));return 'OK'
+        with patch.object(receiver,'load',return_value=data),patch.object(receiver,'read_card',return_value=('original',live)),patch.object(receiver,'at',side_effect=at),patch.object(receiver,'save'),patch.object(receiver,'current_card',return_value=0),self.assertLogs(level='WARNING'):
+            self.assertTrue(receiver.delete_locked(data['messages'][0]['id'])['ok'])
+        self.assertTrue(data['messages'][0]['deleted'])
+
 
 if __name__=='__main__':unittest.main()

@@ -97,6 +97,8 @@ def sources():
 				blank = !st.screen.awake;
 				T551M.power(blank);
 				document.body.classList.toggle('blank', blank);
+				tickClock();
+				schedulePageRefresh();
 				resetIdle();
 			}
 			T551M.status(st);

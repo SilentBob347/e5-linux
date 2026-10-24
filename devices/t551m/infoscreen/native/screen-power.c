@@ -187,9 +187,15 @@ static int reconcile(int level, int touch) {
     if (level >= 0) {
         if (inhibit(!(level > 0 && touch)) < 0)
             goto out;
-        for (unsigned i = 0; i < nl; i++)
-            if (write_number(lights[i], level) < 0)
+        for (unsigned i = 0; i < nl; i++) {
+            long value;
+            if (read_number(lights[i], 10, &value) < 0)
                 goto out;
+            /* Avoid running the driver's backlight update and notifying its
+             * watchers again when only touch policy needed reconciliation. */
+            if (value != level && write_number(lights[i], level) < 0)
+                goto out;
+        }
     }
     bool on = false;
     for (unsigned i = 0; i < nl; i++) {

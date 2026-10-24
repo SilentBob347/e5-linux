@@ -186,6 +186,15 @@ esac
         interface=Gio.DBusNodeInfo.new_for_xml('<node><interface name="org.freedesktop.DBus.ObjectManager"><method name="GetManagedObjects"><arg type="a{oa{sa{sv}}}" direction="out"/></method></interface></node>').interfaces[0]
         def method(c,s,p,i,m,parameters,invocation):snapshots.append(m);invocation.return_value(GLib.Variant('(a{oa{sa{sv}}})',(objects,)))
         registration=connection.register_object('/org/freedesktop/ModemManager1',interface,method,None,None)
+        # Match the real MM export: Calls are separately readable objects,
+        # not members of GetManagedObjects(). Keep delayed replies controllable.
+        call_properties=Gio.DBusNodeInfo.new_for_xml('<node><interface name="org.freedesktop.DBus.Properties"><method name="GetAll"><arg type="s" direction="in"/><arg type="a{sv}" direction="out"/></method></interface></node>').interfaces[0]
+        direct_calls={};call_requests=[];delayed=[];hold_call=set();call_registrations=[]
+        def call_method(c,s,p,i,m,parameters,invocation):
+            self.assertEqual((m,parameters.unpack()),('GetAll',(callif,)))
+            call_requests.append(p)
+            if p in hold_call:delayed.append((invocation,dict(direct_calls[p])))
+            else:invocation.return_value(GLib.Variant('(a{sv})',(direct_calls[p],)))
         loop=GLib.MainLoop();thread=threading.Thread(target=loop.run,daemon=True);thread.start()
         gate=threading.Event();activity={'current':0,'max':0};mutex=threading.Lock()
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -254,8 +263,46 @@ esac
             connection.emit_signal(None,call,'org.freedesktop.DBus.Properties','PropertiesChanged',GLib.Variant('(sa{sv}as)',(callif,{'State':GLib.Variant('u',7)},[])))
             wait(lambda:state()['calls']==[])
             self.assertTrue(all(m=='GetManagedObjects' for m in snapshots))
+
+            direct='/org/freedesktop/ModemManager1/Call/3'
+            direct_calls[direct]={**props,'State':GLib.Variant('i',3),'StateReason':GLib.Variant('i',2),'Direction':GLib.Variant('i',1)}
+            call_registrations.append(connection.register_object(direct,call_properties,call_method,None,None))
+            objects[modem][voice]['Calls']=GLib.Variant('ao',[call,direct])
+            connection.emit_signal(None,modem,'org.freedesktop.DBus.Properties','PropertiesChanged',GLib.Variant('(sa{sv}as)',(voice,{'Calls':GLib.Variant('ao',[call,direct])},[])))
+            wait(lambda:state()['observer_ready'] and state()['calls'] and state()['calls'][0]['id']=='3')
+            self.assertEqual(state()['calls'][0]['state'],'ringing-in')
+            self.assertNotIn(direct,objects,'Call must remain absent from managed snapshot')
+            # Reconnection must hydrate separate Call properties again, then
+            # remain event driven while idle rather than repeatedly reading MM.
+            connection.call_sync('org.freedesktop.DBus','/org/freedesktop/DBus','org.freedesktop.DBus','ReleaseName',GLib.Variant('(s)',('org.freedesktop.ModemManager1',)),None,0,2000,None)
+            wait(lambda:not state()['observer_ready'])
+            before=len(call_requests)
+            connection.call_sync('org.freedesktop.DBus','/org/freedesktop/DBus','org.freedesktop.DBus','RequestName',GLib.Variant('(su)',('org.freedesktop.ModemManager1',0)),None,0,2000,None)
+            wait(lambda:state()['observer_ready'] and len(call_requests)>before)
+            count=(len(call_requests),len(snapshots));time.sleep(2.2)
+            self.assertEqual((len(call_requests),len(snapshots)),count)
+            direct_calls[direct]['State']=GLib.Variant('u',7)
+            connection.emit_signal(None,direct,'org.freedesktop.DBus.Properties','PropertiesChanged',GLib.Variant('(sa{sv}as)',(callif,{'State':GLib.Variant('u',7)},[])))
+            wait(lambda:state()['calls']==[])
+
+            raced='/org/freedesktop/ModemManager1/Call/4'
+            direct_calls[raced]={**props,'State':GLib.Variant('u',3)}
+            hold_call.add(raced)
+            call_registrations.append(connection.register_object(raced,call_properties,call_method,None,None))
+            objects[modem][voice]['Calls']=GLib.Variant('ao',[raced])
+            connection.emit_signal(None,modem,'org.freedesktop.DBus.Properties','PropertiesChanged',GLib.Variant('(sa{sv}as)',(voice,{'Calls':GLib.Variant('ao',[raced])},[])))
+            wait(lambda:len(delayed)==1)
+            direct_calls[raced]['State']=GLib.Variant('u',7)
+            connection.emit_signal(None,raced,'org.freedesktop.DBus.Properties','PropertiesChanged',GLib.Variant('(sa{sv}as)',(callif,{'State':GLib.Variant('u',7)},[])))
+            time.sleep(.1);hold_call.remove(raced)
+            invocation,old=delayed.pop();invocation.return_value(GLib.Variant('(a{sv})',(old,)))
+            wait(lambda:state()['observer_ready'])
+            self.assertEqual(state()['calls'],[],'late ringing reply must not resurrect an ended call')
+            self.assertGreaterEqual(call_requests.count(raced),2)
         finally:
-            process.terminate();process.wait(timeout=10);gate.set();server.shutdown();server.server_close();loop.quit();thread.join(timeout=3);connection.unregister_object(registration);connection.close_sync(None);daemon.terminate();daemon.wait(timeout=5);daemon.stdout.close();log.close()
+            process.terminate();process.wait(timeout=10);gate.set();server.shutdown();server.server_close();loop.quit();thread.join(timeout=3)
+            for reg in call_registrations:connection.unregister_object(reg)
+            connection.unregister_object(registration);connection.close_sync(None);daemon.terminate();daemon.wait(timeout=5);daemon.stdout.close();log.close()
         self.assertEqual(process.returncode,0,(self.root/'voice.log').read_text())
 
 

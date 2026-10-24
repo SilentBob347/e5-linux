@@ -438,13 +438,20 @@ function localParts(ms) {
 	         h: d.getUTCHours(), mi: d.getUTCMinutes(), s: d.getUTCSeconds() };
 }
 
-// the status bar's clock ticks here, every second: the page has the device's
-// time zone (the session passes TZ) and the time is NTP's
+// The status bar and lock share the device's time zone and NTP wall time.
+let clockTimer = null;
 function tickClock() {
+	clearTimeout(clockTimer);
+	clockTimer = null;
+	if (blank) return;
 	const d = localParts(), p2 = (n) => String(n).padStart(2, '0');
 	setText('bar-clock', `${p2(d.h)}:${p2(d.mi)}` + (last?.screen?.clock_seconds ? `:${p2(d.s)}` : ''));
+	window.T551M?.clock();
+	// Both clocks share one timer. A minute-only clock needs no second ticks;
+	// align to wall time so NTP/time-zone changes settle on the next repaint.
+	const period = last?.screen?.clock_seconds ? 1000 : 60000;
+	clockTimer = setTimeout(tickClock, period - ((Date.now() + (last?.tz_offset ?? 0) * 1000) % period));
 }
-setInterval(() => { if (!blank) tickClock(); }, 1000);
 
 /* ---------- data ---------- */
 
@@ -522,8 +529,21 @@ function pageRead(path, index, type = 'json') {
 	return request;
 }
 
+let pollRequest = null, pollAgain = false;
 async function poll() {
 	clearTimeout(pollTimer);
+	if (pollRequest) { pollAgain = true; return pollRequest; }
+	pollRequest = readStatus();
+	try { await pollRequest; }
+	finally {
+		pollRequest = null;
+		// A wake/event during a slow read needs one fresh follow-up, rather
+		// than another concurrent request and another permanent poll loop.
+		pollTimer = setTimeout(poll, pollAgain ? 0 : blank ? POLL_BLANK : POLL_AWAKE);
+		pollAgain = false;
+	}
+}
+async function readStatus() {
 	const done = last == null ? beginPageLoad(P.overview) : () => {};
 	const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 25000);
 	let failed = false;
@@ -553,7 +573,6 @@ async function poll() {
 	}
 	clearTimeout(timeout);
 	done(failed);
-	pollTimer = setTimeout(poll, blank ? POLL_BLANK : POLL_AWAKE);
 }
 
 function post(path, body) {
@@ -663,6 +682,8 @@ function setBlank(on) {
 	blank = on;
 	document.body.classList.toggle('blank', on);
 	post('backlight', { level: on ? 0 : brightness });
+	tickClock();
+	schedulePageRefresh();
 	if (!on) {
 		if (last) render(last);
 		poll();
@@ -750,6 +771,18 @@ function keyLock(power, star) {
 
 /* ---------- navigation ---------- */
 
+let pageRefreshGeneration = 0;
+function schedulePageRefresh() {
+	clearTimeout(advTimer);
+	advTimer = null;
+	const generation = ++pageRefreshGeneration;
+	if (blank || ![P.traffic, P.adv_info].includes(page)) return;
+	advTimer = setTimeout(async () => {
+		try { await (page == P.traffic ? loadTraffic() : loadAdvanced()); }
+		finally { if (generation === pageRefreshGeneration) schedulePageRefresh(); }
+	}, 30000);
+}
+
 let pageTransitionTimer;
 function showPage(n) {
 	const previous = page;
@@ -784,13 +817,11 @@ function showPage(n) {
 	} else if (smsOpen != null) {
 		closeSms();
 	}
-	clearInterval(advTimer);
+	schedulePageRefresh();
 	if (page == P.traffic) {
 		loadTraffic();
-		advTimer = setInterval(() => { if (!blank) loadTraffic(); }, 30000);
 	} else if (page == P.adv_info) {
 		loadAdvanced();
-		advTimer = setInterval(() => { if (!blank) loadAdvanced(); }, 30000);
 	} else if (showIds) {
 		hideIds();
 	}

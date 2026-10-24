@@ -162,6 +162,9 @@ def main():
         model['wake']=False;page.evaluate('setBlank(true)')
         model['calls']=[{**call,'id':'10','state':'ringing-in'}];page.wait_for_timeout(700)
         assert page.evaluate('blank && !T551MCalls.active()')
+        page.evaluate('setBlank(false)')
+        page.wait_for_function('T551MCalls.active()',timeout=2000)
+        frame.locator('#accept').wait_for(state='visible',timeout=2000)
         model['calls']=[];page.wait_for_timeout(400);model['wake']=True
         fixtures['/api/status']['screen']['touch']=False
         page.evaluate('last.screen.touch=false;T551M.status(last);applyTouch()')

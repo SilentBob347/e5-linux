@@ -49,7 +49,7 @@ def main():
             window.L={env:{lang:'zh'}};
             const M=new Function('rpc','baseclass',common)(rpc,{extend:x=>x});
             M.localizeMenu=()=>{};
-            window.cpuView=new Function('view','rpc','poll','M','Cores',source)({extend:x=>x},rpc,poll,M,{render:()=>document.createElement('div')});
+            window.cpuView=new Function('view','rpc','poll','M','Cores','Idle',source)({extend:x=>x},rpc,poll,M,{render:()=>document.createElement('div')},{render:()=>document.createElement('div')});
             document.body.append(cpuView.render(fixture));
         }''',[SOURCE,COMMON])
         assert page.locator('[data-setting$="_governor"]').count()==3

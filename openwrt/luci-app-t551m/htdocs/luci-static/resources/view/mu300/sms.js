@@ -103,12 +103,20 @@ return view.extend({
 			M.confirmBox('清空本地短信池', '只删本地文件，SIM 上的不动。', { danger: true, okText: '清空' })
 				.then(function(go) {
 					if (!go) return;
-					L.resolveDefault(M.callSmsDel('all')).then(function() { self.sel = null; self.reload(); });
+					L.resolveDefault(M.callSmsDel('all')).then(function(r) {
+						if (!r || !r.ok) {
+							self.note(M.translate('删除失败') + (r && r.error ? ': ' + r.error : ''), 'error');
+							return;
+						}
+						self.sel = null;
+						self.reload();
+					});
 				});
 		};
 		this.Q('sms-send').onclick = function() { self.send(); };
 		var txt = this.Q('sms-text');
 		txt.addEventListener('keydown', function(ev) {
+			if (ev.isComposing || ev.keyCode === 229) return;
 			if (ev.key == 'Enter' && !ev.shiftKey) { ev.preventDefault(); self.send(); }
 		});
 		txt.addEventListener('input', function() {
@@ -141,41 +149,50 @@ return view.extend({
 
 	send: function() {
 		var self = this;
+		if (this._sending) return;
 		var num = (this.Q('sms-num').value || '').trim();
-		var text = (this.Q('sms-text').value || '').replace(/\s+$/, '');
+		var draft = this.Q('sms-text').value || '';
+		var text = draft.replace(/\s+$/, '');
 		if (!num || !text) { this.note('号码和内容都要填。', 'error'); return; }
 		var btn = this.Q('sms-send');
+		this._sending = true;
 		M.busy(btn, true);
 		this.note('发送中…', 'busy');
 		L.resolveDefault(M.callSmsSend(num, text, this.Q('sms-card').value)).then(function(r) {
 			r = r || {};
 			M.busy(btn, false);
+			self._sending = false;
 			if (r.ok) {
 				self.note('已发送，稍后自动刷新。', 'success');
-				self.Q('sms-text').value = '';
+				if (self.Q('sms-text').value === draft) self.Q('sms-text').value = '';
 				setTimeout(function() { self.reload(); }, 2500);
 			} else {
 				self.note('发送失败：' + (r.error || '未知错误') + (r.busy ? '（AT 通道正忙，稍后重试）' : ''), 'error');
 			}
-		}, function() { M.busy(btn, false); self.note('调用失败', 'error'); });
+		}, function() { self._sending = false; M.busy(btn, false); self.note('调用失败', 'error'); });
 	},
 
 	/* 聚合池子里的几页，按联系人分组 */
 	reload: function() {
 		var self = this;
+		var seq = this._reloadSeq = (this._reloadSeq || 0) + 1;
 		var all = [], page = 1;
 		var step = function() {
 			return L.resolveDefault(M.callSmsList(page)).then(function(r) {
-				r = r || {};
-				if (r.error) {
-					self.Q('sms-convs').innerHTML = '<div class="mud-note">' + M.esc(r.error) + '</div>';
+				if (seq !== self._reloadSeq) return;
+				if (!r || r.error || r.ok === 0 || !Array.isArray(r.msgs)) {
+					var error = r && r.error || M.translate('短信列表读取失败');
+					if (self._listError !== error) self.note(error, 'error');
+					self._listError = error;
+					if (!self._sig) self.Q('sms-convs').innerHTML = '<div class="mud-note">' + M.esc(error) + '</div>';
 					return;
 				}
 				all = all.concat(r.msgs || []);
 				var pages = r.pages || 1;
 				if (page < pages && page < MAX_PAGES) { page++; return step(); }
+				self._listError = null;
 				self.stat = r;
-					self.build(all);
+				self.build(all);
 			});
 		};
 		return step();
@@ -185,14 +202,19 @@ return view.extend({
 		var self = this;
 		var filter = this.Q('sms-filter').value;
 		if (filter !== '') all = all.filter(function(m) { return String(m.card) === filter; });
-		/* 5 秒轮询的防闪烁：数据签名没变（无新消息、无未读状态翻转）就完全
-		 * 不重绘——整块 innerHTML 重建 + 全文异步回填会产生肉眼可见的闪烁 */
-		var sig = (this.stat && this.stat.total) + '|' +
-			(this.stat && this.stat.sim_used) + '/' + (this.stat && this.stat.sim_total) + '|' + all.map(function(m) {
-			return m.id + ':' + m.status;
-		}).join(',');
+		/* 分片补齐可能只更新原 ID 的内容；签名须包含摘要及正文版本。
+		 * 数据完全不变时保留 DOM，避免轮询重绘闪烁。 */
+		var sig = JSON.stringify([this.stat && this.stat.total,
+			this.stat && this.stat.sim_used, this.stat && this.stat.sim_total, all]);
 		if (sig === this._sig) return;
 		this._sig = sig;
+		this.versions = {};
+		all.forEach(function(m) {
+			self.versions[m.id] = JSON.stringify([m.revision, m.preview]);
+		});
+		Object.keys(this.cache || {}).forEach(function(id) {
+			if (!(id in self.versions)) delete self.cache[id];
+		});
 		this.convs = {};
 		all.forEach(function(m) {
 			var peer = m.peer || '?';
@@ -238,7 +260,7 @@ return view.extend({
 		else { this.sel = null; this.emptyThread(); }
 	},
 
-	/* 打开会话：渲染气泡，全文按 id 缓存（首取后不再重拉，重绘不再闪预览） */
+	/* 全文按 ID 和内容版本缓存，分片补齐后重新读取。 */
 	open: function(peer) {
 		var self = this;
 		var keepScroll = this.Q('sms-msgs') ? this.Q('sms-msgs').scrollTop : 0;
@@ -256,7 +278,9 @@ return view.extend({
 			var div = document.createElement('div');
 			div.className = 'mud-bub' + (m.dir === 'mo' ? ' out' : '');
 			div.setAttribute('data-id', m.id);
-			var full = self.cache[m.id];
+			var version = self.versions[m.id];
+			var cached = self.cache[m.id];
+			var full = cached && cached.version === version ? cached.body : '';
 			div.innerHTML = '<span class="bd">' + M.esc(full || m.preview || '') +
 				(!full && m.preview && m.preview.length >= 44 ? '…' : '') + '</span>' +
 				'<span class="tm">' + M.esc((m.sim || '来源未知') + ' · ' + ((m.time || '').split(' ').pop() || '')) + '</span>';
@@ -267,12 +291,12 @@ return view.extend({
 			if (!full) {
 				L.resolveDefault(M.callSmsShow(m.id)).then(function(r) {
 					r = r || {};
-					if (!r.ok) return;
+					if (!r.ok || self.versions[m.id] !== version) return;
 					/* show 的输出是头部 + "---" + 正文（单换行，无空行）：
 					 * 按 \n\n 切分会取到空串——气泡被清空的根源 */
 					var body = (r.text || '').split('\n---\n').slice(1).join('\n---\n').trim();
 					if (!body) return;
-					self.cache[m.id] = body;
+					self.cache[m.id] = { version: version, body: body };
 					var bd = div.querySelector('.bd');
 					if (bd && document.contains(div)) {
 						bd.textContent = body;
