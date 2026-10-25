@@ -22,8 +22,8 @@ for mounts in /proc/self/mountinfo /proc/1/mountinfo; do
 done
 [ "$raw" -gt 0 ] && [ "$raw" -le "$((sectors * 512))" ]
 lock=/data/local/tmp/e5-part-write.lock
-mkdir "$lock" || { echo 'another installation or stale lock exists' >&2; exit 1; }
 stage=
+legacy_owned=0
 nv_phase=0
 nv_mode=${6:-}
 case "$nv_mode" in ''|--nv-check|--nv-ready) ;; *) exit 2 ;; esac
@@ -35,7 +35,7 @@ cleanup() {
     [ "$procbound" = 0 ] || umount "$stage/proc" || exit 1
     [ "$devbound" = 0 ] || umount "$stage/dev" || exit 1
     [ -z "$stage" ] || rm -rf "$stage"
-    rmdir "$lock"
+    [ "$legacy_owned" = 0 ] || rmdir "$lock"
     exit "$rc"
 }
 trap cleanup EXIT
@@ -43,6 +43,42 @@ trap 'exit 1' INT TERM HUP
 stage=$(mktemp -d /data/local/tmp/e5-part-tools.XXXXXX)
 tar -xf /data/local/tmp/e5-ext4-tools.tar -C "$stage"
 (cd "$stage" && sha256sum -c SHA256SUMS)
+# The bundled installer BusyBox lacks flock. Ship the checked OpenWrt tool and
+# its loader in ext4-tools instead of depending on Android's command set.
+guard=/data/local/tmp/e5-part-write.flock
+[ ! -L "$guard" ] && { [ ! -e "$guard" ] || [ -f "$guard" ]; } || exit 1
+(umask 077; : >> "$guard")
+exec 9>> "$guard"
+chroot "$stage" /usr/bin/flock -n 9 || {
+    echo 'another installation is actively writing; wait for it to finish' >&2; exit 1;
+}
+# Migrate old mkdir-only locks. Their scripts hold no kernel lock and left no
+# PID record, so inspect actual script processes and writable target FDs.
+if [ -e "$lock" ] || [ -L "$lock" ]; then
+    [ -d "$lock" ] && [ ! -L "$lock" ] || { echo 'unsafe legacy install lock' >&2; exit 1; }
+    target_id=$(stat -Lc '%t:%T' "$dev")
+    for process in /proc/[0-9]*; do
+        [ "${process##*/}" != "$$" ] || continue
+        if tr '\000' '\n' < "$process/cmdline" 2>/dev/null | grep -qE '(^|/)(e5-)?part-write\.sh$'; then
+            echo 'an older installation is still running; wait for it to finish' >&2; exit 1
+        fi
+        for descriptor in "$process"/fd/*; do
+            [ -b "$descriptor" ] || continue
+            [ "$(stat -Lc '%t:%T' "$descriptor" 2>/dev/null)" = "$target_id" ] || continue
+            flags=$(awk '$1=="flags:" {print $2}' "$process/fdinfo/${descriptor##*/}" 2>/dev/null) || continue
+            case "$flags" in ''|*[!0-7]*) continue ;; esac
+            [ "$((flags & 3))" = 0 ] || {
+                echo 'an installation still has the root device open for writing' >&2; exit 1;
+            }
+        done
+    done
+    rmdir "$lock" || { echo 'legacy lock contains unexpected files; nothing written' >&2; exit 1; }
+    echo 'Recovered stale installation lock / 已回收失效安装锁'
+fi
+# Also exclude a genuinely older installer while this version runs. The stable
+# flock inode is never unlinked; inherited FD 9 protects orphan writer children.
+mkdir "$lock" || { echo 'another legacy installation just started' >&2; exit 1; }
+legacy_owned=1
 mkdir "$stage/dev" "$stage/proc" "$stage/etc" "$stage/view"
 mount --bind /dev "$stage/dev"; devbound=1
 mount --bind /proc "$stage/proc"; procbound=1

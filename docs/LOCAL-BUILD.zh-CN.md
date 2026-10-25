@@ -125,6 +125,19 @@ hostapd 或 GUI。正式目录本身包含唯一 ZIP，不另保留整份解压�
 
 ### 4. 查看状态与处理失败
 
+仅安装器脚本／随包工具变化，固件与 boot 不变时，可快速刷新上一份已验证发布：
+
+```sh
+python3 tools/build-release.py refresh-installers --workspace /home/kano/openwrt-build \
+  --profiles all --source-release /absolute/repo/out/releases/<verified-task>
+```
+
+该路径通过同一把工作区锁，只接受带已验证 `BUILD-RUN.json` 的本地正式发布，
+先核对全部输入 ZIP／哈希；生成新的 ext4 工具包并流式替换安装脚本，不解压 rootfs，
+不重编内核或 GUI。新 ZIP 名带 `-installer-g<提交>`，固件版本保持不变，
+`files/INSTALLER-REVISION.json` 记录宿主工具修订和原镜像哈希。旧发布不修改；
+全部新 ZIP 校验通过后才发布。固件／boot 变化仍必须使用普通 `package` 路径。
+
 ```sh
 python3 tools/build-release.py status
 sudo python3 tools/build-release.py clean-staging --workspace /home/kano/openwrt-build --profiles t551m

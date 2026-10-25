@@ -14,7 +14,7 @@ def build(root, out):
     root = root.resolve()
     with tempfile.TemporaryDirectory() as directory:
         stage = Path(directory)
-        pending = ['usr/sbin/e2fsck', 'usr/sbin/resize2fs', 'lib/ld-musl-aarch64.so.1']
+        pending = ['usr/sbin/e2fsck', 'usr/sbin/resize2fs', 'usr/bin/flock', 'lib/ld-musl-aarch64.so.1']
         hashes = {}
         while pending:
             name = pending.pop()
