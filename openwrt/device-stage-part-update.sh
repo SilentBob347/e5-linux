@@ -3,7 +3,9 @@
 set -eu
 stage=${1:?upload directory}
 case "${E5_NV_POLICY:-preserve}" in preserve|original) ;; *) exit 2 ;; esac
-case "$stage" in /tmp/e5-update-*) ;; *) exit 1 ;; esac
+case "$stage" in /.e5-upload-*) token=${stage#/.e5-upload-} ;; *) exit 1 ;; esac
+case "$token" in ''|*[!0-9a-f]*) exit 1 ;; esac
+[ "${#token}" = 32 ] && [ ! -L "$stage" ]
 if [ ! -f /etc/e5/part-root ] && [ ! -f /etc/e5/sd-root ]; then
     E5_IMAGE_SIZE=${E5_IMAGE_SIZE:?} E5_NV_ARCHIVE="$stage/nv.tar" sh "$stage/device-install-image.sh" "$stage/openwrt.ext4.gz"
     exit
@@ -59,9 +61,14 @@ tar -cf /.e5-update/firmware.tar $firmware
 settings=
 for name in etc/config etc/shadow etc/passwd etc/group etc/dropbear etc/e5 etc/e5linux \
     etc/uhttpd.crt etc/uhttpd.key etc/vnstat etc/e5-infoscreen etc/e5-sms etc/unisoc-modem \
-    etc/e5-sounds etc/e5-cpu-voltage.json etc/bluetooth etc/e5-nv; do
+    etc/e5-sounds etc/e5-cpu-voltage.json etc/bluetooth; do
     [ ! -e "$name" ] || settings="$settings $name"
 done
+# Preserve policy's NV archive already includes this entire history. Original
+# recovery builds a fresh NV archive, so retain the old history in settings.
+if { [ "${E5_NV_POLICY:-preserve}" = original ] || [ ! -d opt/e5/nv ]; } && [ -e etc/e5-nv ]; then
+    settings="$settings etc/e5-nv"
+fi
 tar -cf /.e5-update/settings.tar $settings
 cd /
 umount "$view"; rmdir "$view"; trap - EXIT
@@ -70,8 +77,15 @@ tar -tf settings.tar >/dev/null; tar -tf firmware.tar >/dev/null; tar -tf ext4-t
 sha256sum openwrt.ext4.gz firmware.tar settings.tar ext4-tools.tar > SHA256SUMS
 sha256sum -c SHA256SUMS
 payload=$(du -k openwrt.ext4.gz firmware.tar settings.tar ext4-tools.tar | awk '{s+=$1} END {print s}')
-[ "$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)" -gt "$((payload + 262144))" ] || {
-    echo 'not enough memory for offline update; request not armed' >&2; exit 1;
+nv_kib=0
+if [ -f "$stage/nv.tar" ]; then nv_kib=$(du -k "$stage/nv.tar" | awk '{print $1}'); fi
+# The desktop snapshot and running browser/services disappear on reboot. Do
+# not compare their current MemAvailable with the *offline* payload budget.
+# Early initramfs still checks its actual MemAvailable before any root write.
+total_kib=$(awk '/MemTotal:/ {print $2}' /proc/meminfo)
+required_kib=$((payload + nv_kib + 262144))
+[ "$total_kib" -gt "$required_kib" ] || {
+    echo "not enough physical memory for offline update: need ${required_kib} KiB, total ${total_kib} KiB; request not armed" >&2; exit 1;
 }
 cid=$(cat "/sys/class/block/$disk/device/cid")
 {

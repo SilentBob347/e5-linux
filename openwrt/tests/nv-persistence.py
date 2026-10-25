@@ -9,6 +9,7 @@ from pathlib import Path
 import shutil
 import struct
 import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -18,7 +19,8 @@ from types import SimpleNamespace
 TOP = Path(__file__).resolve().parents[2]
 SOURCE = TOP/'openwrt/luci-app-t551m/root/usr/lib/e5/nv_persistence.py'
 spec = importlib.util.spec_from_file_location('nv_persistence', SOURCE)
-nv = importlib.util.module_from_spec(spec); spec.loader.exec_module(nv)
+sys.path.insert(0, str(SOURCE.parent))
+nv = importlib.util.module_from_spec(spec); sys.modules['nv_persistence'] = nv; spec.loader.exec_module(nv)
 
 
 def image(value=1, tail=b'untouched padding'):
@@ -132,23 +134,105 @@ class NVTests(unittest.TestCase):
         data=nv.read_json(path); data['time']-=301; nv.atomic_json(path,data)
         with self.assertRaisesRegex(nv.NVError,'nv_preview_expired'): self.manager.sync(request)
 
-    def test_raw_export_never_available_even_with_yes(self):
+    def test_missing_device_identity_cannot_write_original_even_with_yes(self):
         with patch.object(nv.subprocess,'run') as run:
-            for operation in (self.manager.preview,self.manager.start,self.manager.sync):
-                with self.assertRaisesRegex(nv.NVError,'nv_calibration_rules_unverified'):
-                    operation('to-original' if operation==self.manager.preview else dict(direction='to-original',confirmation='yes'))
+            with self.assertRaisesRegex(nv.NVError,'nv_device_unknown'):
+                self.manager.preview('to-original')
+            for operation in (self.manager.start,self.manager.sync):
+                with self.assertRaisesRegex(nv.NVError,'nv_preview_expired'):
+                    operation(dict(direction='to-original',confirmation='yes'))
             run.assert_not_called()
 
     def test_complete_private_backups_and_reboot_status(self):
         result=self.import_nv(); backup=self.root/result['backup'].lstrip('/')
         self.assertTrue(nv.read_json(backup/'record.json')['complete'])
+        record=nv.read_json(backup/'record.json')
         for name in nv.NAMES:
             for group in ('work','source'):
-                p=backup/group/name; self.assertEqual(p.stat().st_mode & 0o777,0o600)
+                    p=backup/group/(name+'.gz'); self.assertEqual(p.stat().st_mode & 0o777,0o600)
+                    expected=record['work'][name] if group=='work' else record['source'][name]['sha256']
+                    nv.verify_snapshot(backup/group/name,expected,(self.store/name).stat().st_size)
+        self.assertFalse((backup/'previous-working').exists())
         self.assertEqual(backup.stat().st_mode & 0o777,0o700)
         self.assertTrue(self.manager.status()['last_sync']['reboot_required'])
         (self.root/'proc/sys/kernel/random/boot_id').write_text('second-boot')
         self.assertFalse(self.manager.status()['last_sync']['reboot_required'])
+
+    def test_import_gzip_preserves_full_tails_without_third_working_copy(self):
+        for name,path in self.devices.items():
+            data=path.read_bytes().ljust(1<<20,b'\0');path.write_bytes(data);(self.store/name).write_bytes(data)
+        nv.atomic_json(self.store/'factory-sha256.json',{n:nv.digest(p) for n,p in self.devices.items()})
+        before={n:nv.digest(p) for n,p in self.devices.items()}
+        result=self.import_nv();backup=self.root/result['backup'].lstrip('/')
+        size=sum(p.stat().st_size for p in backup.rglob('*') if p.is_file())
+        self.assertLess(size,(2*len(nv.NAMES)*(1<<20))//50)
+        self.assertFalse((backup/'previous-working').exists())
+        for name in nv.NAMES:
+            for group in ('source','work'):nv.verify_snapshot(backup/group/name,before[name],1<<20)
+        self.assertEqual(before,{n:nv.digest(p) for n,p in self.devices.items()})
+
+    def legacy_backup(self):
+        path=self.manager.state/'backups/update-20261025-123456-012345abcdef'
+        path.mkdir(parents=True)
+        for name in nv.NAMES:shutil.copyfile(self.store/name,path/name)
+        nv.atomic_json(path/'record.json',{'kind':'update-preservation'})
+        return path
+
+    def test_compress_legacy_update_backup_without_touching_active_nv(self):
+        path=self.legacy_backup();before={n:nv.digest(self.store/n) for n in nv.NAMES}
+        with self.assertRaises(nv.NVError):self.manager.compress_backup({'id':path.name,'confirmation':'YES'})
+        with patch.object(nv.subprocess,'run') as run:
+            self.assertTrue(self.manager.compress_backup({'id':path.name,'confirmation':'yes'})['backup_compressed'])
+        run.assert_not_called()
+        for name in nv.NAMES:
+            nv.verify_snapshot(path/name,before[name],(self.store/name).stat().st_size)
+            self.assertFalse((path/name).exists())
+        self.assertEqual(before,{n:nv.digest(self.store/n) for n in nv.NAMES})
+
+    def test_compress_legacy_import_removes_only_verified_duplicate_working(self):
+        result=self.import_nv();backup=self.root/result['backup'].lstrip('/')
+        shutil.copytree(self.store,backup/'previous-working')
+        for group in ('source','work'):
+            for name in nv.NAMES:
+                with nv.snapshot_reader(backup/group/name) as src:(backup/group/name).write_bytes(src.read())
+                (backup/group/(name+'.gz')).unlink()
+        record=nv.read_json(backup/'record.json');record.pop('storage');record.pop('raw_bytes');nv.atomic_json(backup/'record.json',record)
+        before={n:nv.digest(self.store/n) for n in nv.NAMES}
+        self.manager.compress_backup({'id':backup.name,'confirmation':'yes'})
+        self.assertFalse((backup/'previous-working').exists())
+        self.assertFalse(self.manager.backups()['entries'][0]['can_compress'])
+        self.assertEqual(before,{n:nv.digest(self.store/n) for n in nv.NAMES})
+
+    def test_compression_worker_is_async_and_does_not_create_nv_sync_history(self):
+        backup=self.legacy_backup();nv.safe_directory(self.manager.ram)
+        with patch.object(nv.subprocess,'Popen') as launch:
+            queued=self.manager.start({'id':backup.name,'confirmation':'yes'},'compress_backup')
+        launch.assert_called_once();self.assertEqual(queued['job']['operation'],'compress_backup')
+        request=next(self.manager.ram.glob('request-*.json'))
+        nv.run_worker(request,self.manager)
+        result=nv.read_json(self.manager.ram/'job.json')
+        self.assertEqual(result['state'],'complete');self.assertTrue(result['result']['backup_compressed'])
+        self.assertFalse(request.exists());self.assertFalse((self.manager.state/'last-sync.json').exists())
+
+    def test_failed_gzip_never_publishes_partial_or_loses_original(self):
+        path=self.legacy_backup();source=path/nv.NAMES[0];before=source.read_bytes()
+        with patch.object(nv.shutil,'copyfileobj',side_effect=OSError('injected compression failure')):
+            with self.assertRaises(OSError):nv.save_snapshot(source,source)
+        self.assertEqual(source.read_bytes(),before);self.assertFalse(list(path.glob('*.gz')))
+        self.assertFalse(list(path.glob('.snapshot-*')))
+
+    def test_interrupted_old_backup_cleanup_can_resume_without_losing_bytes(self):
+        backup=self.legacy_backup();target=backup/nv.NAMES[1];real_unlink=Path.unlink
+        before={n:(backup/n).read_bytes() for n in nv.NAMES}
+        def unlink(path,*a,**k):
+            if path==target:raise OSError('injected cleanup interruption')
+            return real_unlink(path,*a,**k)
+        with patch.object(Path,'unlink',unlink),self.assertRaises(OSError):
+            self.manager.compress_backup({'id':backup.name,'confirmation':'yes'})
+        self.manager.compress_backup({'id':backup.name,'confirmation':'yes'})
+        for name in nv.NAMES:
+            with nv.snapshot_reader(backup/name) as stream:self.assertEqual(stream.read(),before[name])
+        self.assertFalse(self.manager.backups()['entries'][0]['can_compress'])
 
     def test_stop_failure_preserves_work_and_error_record(self):
         before={n:(self.store/n).read_bytes() for n in nv.NAMES}
@@ -178,6 +262,15 @@ class NVTests(unittest.TestCase):
         nv.recover_import(self.root)
         self.assertTrue(self.manager.status()['validated'])
         self.assertFalse((self.root/'opt/e5/nv-import.json').exists())
+        self.assertTrue(nv.read_json(self.manager.state/'last-sync.json')['recovered'])
+
+    def test_import_power_loss_after_commit_records_success_and_no_reboot_prompt(self):
+        self.devices['nr_fixnv1_a'].write_bytes(image(7))
+        result=self.import_nv();backup=self.root/result['backup'].lstrip('/')
+        nv.atomic_json(self.root/'opt/e5/nv-import.json',{'backup':backup.relative_to(self.root).as_posix()})
+        nv.recover_import(self.root)
+        record=nv.read_json(self.manager.state/'last-sync.json')
+        self.assertTrue(record['ok']);self.assertTrue(record['recovered']);self.assertFalse(record['reboot_required'])
 
     def test_recovery_never_uses_arbitrary_path(self):
         nv.atomic_json(self.root/'opt/e5/nv-import.json',{'backup':'../../somewhere'})
@@ -261,11 +354,10 @@ class NVTests(unittest.TestCase):
             with self.assertRaises(OSError):self.manager.start(request)
         self.assertEqual(self.manager.status()['job']['state'],'failed')
         self.assertFalse(list(self.manager.ram.glob('request-*.json')))
-        with patch.object(nv.subprocess,'Popen'):self.manager.start(dict(request,token='invalid'))
-        staged=next(self.manager.ram.glob('request-*.json'))
-        with patch.object(nv.subprocess,'run') as stop:
-            nv.run_worker(staged,self.manager);stop.assert_not_called()
-        self.assertEqual(self.manager.status()['job']['error'],'nv_preview_expired')
+        with patch.object(nv.subprocess,'Popen') as launch:
+            with self.assertRaisesRegex(nv.NVError,'nv_preview_expired'):
+                self.manager.start(dict(request,token='invalid'))
+            launch.assert_not_called()
 
     def test_pc_update_keeps_verified_backup_and_retains_failed_download(self):
         spec=importlib.util.spec_from_file_location('nv_update',TOP/'tools/e5-update.py')
@@ -398,6 +490,7 @@ sync() { :; }
 nv_archive_offline() { return 1; }
 nv_restore_offline() { echo INCORRECT_RESTORE; return 1; }
 chroot() { nvroot=$1; shift 2; command python3 "$@" --root "$nvroot"; }
+nv_python_offline() { chroot "$1" /usr/bin/python3 - "$2" < "'''+str(SOURCE)+'''"; }
 '''
         marker=new/'etc/e5/nv-update-original'
         for value,success in [('',False),('NV-ORIGINAL-RECOVERY-V1 e5 '+'b'*32,False),

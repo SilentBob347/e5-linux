@@ -94,7 +94,7 @@ keep_config() {
     rm -f "$N/etc/e5/nv-update-original"
     if [ -e "$from/opt/e5/nv" ] || [ -L "$from/opt/e5/nv" ] || [ "${E5_NV_POLICY:-preserve}" = original ]; then
         local nvarchive nv_policy=${E5_NV_POLICY:-preserve}
-        nvarchive=$(mktemp /tmp/e5-img.nv.XXXXXX)
+        nvarchive=$(mktemp /opt/e5-img.nv.XXXXXX)
         # Executed by the current host's interpreter. The newly installed
         # shared implementation pauses live writers or reads an offline tree.
         if [ "${E5_NV_POLICY:-preserve}" = original ]; then

@@ -14,7 +14,7 @@ define Package/luci-app-t551m
   CATEGORY:=LuCI
   SUBMENU:=3. Applications
   TITLE:=Unisoc modem control center
-  DEPENDS:=+luci-base +firewall4 +nftables-json +flock +rpcd +rpcd-mod-ucode +jsonfilter +curl +ca-bundle +openssl-util +msmtp +python3 +ucode +ucode-mod-fs +ucode-mod-ubus +ucode-mod-uci +ucode-mod-uloop +ucode-mod-rtnl +ucode-mod-nl80211
+  DEPENDS:=+luci-base +cgi-io +firewall4 +nftables-json +flock +rpcd +rpcd-mod-ucode +jsonfilter +curl +ca-bundle +openssl-util +msmtp +python3 +ucode +ucode-mod-fs +ucode-mod-ubus +ucode-mod-uci +ucode-mod-uloop +ucode-mod-rtnl +ucode-mod-nl80211
 endef
 
 define Package/luci-app-t551m/description

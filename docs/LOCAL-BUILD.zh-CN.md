@@ -1,5 +1,8 @@
 # 本地构建与打包规范
 
+本机 Agent 的完整操作指南见 [AGENT-BUILD.zh-CN.md](AGENT-BUILD.zh-CN.md)。
+Windows/固件在本机完成；Apple Silicon App 可按用户授权使用上游 macOS CI 原生重编，下载后仍须通过源码指纹校验。
+
 本文件是本地多机型构建的入口；`docs/RELEASE.md` 另行说明 GitHub Actions。
 不再用 `work/` 下日期命名的 worker、复制旧 worker 或字符串替换执行旧脚本。
 本规范不启动构建、不迁移目录、不清除历史文件，也不改变设备安装流程。
@@ -17,7 +20,7 @@
 | 通用临时文件 | 工作区 `tmp/e5-release-*`，每步结束自动删除；不创建日期命名源码/root 缓存 |
 | 任务日志、状态 | 仓库 `out/build-logs/<task>/`，最近任务 `out/build-state/latest.json` |
 | 正式产物 | 仓库 `out/releases/<task>/`，全部机型校验通过才成为正式目录 |
-| Windows/macOS 安装器 | `installer/artifacts/windows-x64`、`installer/artifacts/macos-arm64` |
+| Windows/macOS 安装器 | `installer/artifacts/windows`、`installer/artifacts/macos-arm64` |
 | 排查资料、设备备份 | 仍在既有 `work/`、`dumps/`，不参与自动清理 |
 
 `tools/build-layout.json` 是受版本控制的路径登记表，支持 `{repo}` 与 `{workspace}`。
@@ -110,6 +113,12 @@ sudo python3 tools/build-release.py package --workspace /home/kano/openwrt-build
 5. 每个机型成功后删除本任务持有的 staging，不累计每个日期的一份 rootfs。
 6. 全部机型通过、源码指纹未变后，将 `.building-<task>` 原子改名为正式目录。
    内附 `BUILD-RUN.json`，记录源码、任务、日志、文件大小和 SHA-256。
+
+每个正式 ZIP 固定包含 `OpenWrt-Diff-Studio.exe`、Apple Silicon 的
+`OpenWrt-Diff-Studio.app` 和 Python 入口。`tools/package-diff-studio.py` 在最终校验前装入，
+复用已验证的原生 GUI，保持 Mac APP 内部签名内容不变；与安装器共用 `tools` 中的后端，
+不另复制整套运行环境。`diff-tool.json` 只登记补丁工具需要的文件，导出更新器时不会带入
+boot、rootfs 或 ADB。最终 ZIP 校验同时检查这份工具清单；后续打包不再另行手动补塞。
 
 组装过程中仍会编译原有的少量静态辅助程序；不会重编内核、ModemManager、
 hostapd 或 GUI。正式目录本身包含唯一 ZIP，不另保留整份解压发布目录。

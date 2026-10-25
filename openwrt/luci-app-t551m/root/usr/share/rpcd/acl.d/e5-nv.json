@@ -1,7 +1,8 @@
 {
   "e5-nv": {
-    "description": "NV persistence status and explicit original-to-working import",
-    "read": {"ubus": {"e5-nv": ["status"]}},
-    "write": {"ubus": {"e5-nv": ["preview", "sync"]}}
+    "description": "NV status, read-only IMEI display and confirmed synchronization",
+    "read": {"ubus": {"e5-nv": ["status", "backups"]}, "cgi-io": ["download"],
+             "file": {"/tmp/e5-nv-download/export-*.tar.gz": ["read"]}},
+    "write": {"ubus": {"e5-nv": ["preview", "sync", "delete_backup", "compress_backup", "manual_backup", "prepare_download"]}}
   }
 }

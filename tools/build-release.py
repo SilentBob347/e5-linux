@@ -178,6 +178,16 @@ def verify_archive(path):
                     h.update(chunk)
             if h.hexdigest() != wanted:
                 raise ValueError('ZIP checksum mismatch: ' + name)
+        required = {'OpenWrt-Diff-Studio.exe','OpenWrt-Diff-Studio.py',
+                    'OpenWrt-Diff-Studio.app/Contents/MacOS/openwrt-installer',
+                    'tools/backend/openwrt-backend.exe','tools/macos/backend/openwrt-backend'}
+        tool = json.loads(archive.read('diff-tool.json'))
+        if tool.get('protocol') != 1 or not required.issubset(tool.get('files', {})):
+            raise ValueError('Diff Studio missing native entries/runtime')
+        for name, wanted in tool['files'].items():
+            if (name not in required and not name.startswith(('backend/', 'tools/backend/',
+                    'tools/macos/backend/', 'OpenWrt-Diff-Studio.app/'))) or manifest.get(name) != wanted:
+                raise ValueError('Diff Studio runtime scope/checksum mismatch: ' + name)
 
 
 class Task:

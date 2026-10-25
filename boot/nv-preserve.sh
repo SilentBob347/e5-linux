@@ -1,4 +1,20 @@
 # Sourced by init. No NV writers exist in this early offline phase.
+nv_python_offline() {
+    local root=$1 operation=$2 rc=0
+    shift 2
+    # Early getrandom(GRND_NONBLOCK) can return EAGAIN. CPython then needs
+    # /dev/urandom for its hash seed; an offline root has an empty /dev.
+    # Keep the old filesystem read-only and expose the existing device mount
+    # only for this invocation. Do not disable Python's hash randomization.
+    [ -d "$root/dev" ] || return 1
+    mount --bind /dev "$root/dev" || return 1
+    printf 'NV offline Python: %s\n' "$operation" >> /run/nv-preserve.err
+    chroot "$root" /usr/bin/python3 - "$operation" "$@" < /etc/nv-persistence.py 2>> /run/nv-preserve.err || rc=$?
+    umount "$root/dev" || rc=1
+    [ "$rc" = 0 ] || cat /run/nv-preserve.err >&2
+    return "$rc"
+}
+
 nv_archive_offline() {
     local old=$1 archive=$2
     [ ! -L "$old/opt/e5/nv" ] || return 1
@@ -6,22 +22,27 @@ nv_archive_offline() {
     [ ! -L "$old/opt/e5/nv" ] && [ -x "$old/usr/bin/python3" ] || return 1
     # The interpreter and libraries belong to the old, verified system. Only
     # the new maintenance source is streamed on stdin; no target script runs.
-    chroot "$old" /usr/bin/python3 - archive < /etc/nv-persistence.py > "$archive.part" || {
+    nv_python_offline "$old" archive --gzip > "$archive.part" || {
         rm -f "$archive.part"; return 1;
     }
-    tar -tf "$archive.part" >/dev/null || return 1
+    tar -ztf "$archive.part" >/dev/null || return 1
     mv "$archive.part" "$archive" || return 1
     sha256sum "$archive" > "$archive.sha256"
 }
 
 nv_restore_offline() {
-    local new=$1 archive=$2
+    local new=$1 archive=$2 compression=
     [ -f "$archive" ] || return 0
     sha256sum -c "$archive.sha256" || return 1
-    tar -xf "$archive" -C "$new" || return 1
+    # Format compatibility for old plain archives and new gzip transports;
+    # do not rely on BusyBox being built with automatic gzip detection.
+    case "$(dd if="$archive" bs=2 count=1 2>/dev/null)" in
+        "$(printf '\037\213')") compression=z ;;
+    esac
+    tar -x${compression}f "$archive" -C "$new" || return 1
     chmod 700 "$new/opt/e5/nv" || return 1
-    chroot "$new" /usr/bin/python3 - verify < /etc/nv-persistence.py || return 1
-    chroot "$new" /usr/bin/python3 - update-backup < /etc/nv-persistence.py
+    nv_python_offline "$new" verify || return 1
+    nv_python_offline "$new" update-backup
 }
 
 nv_migrate_images() {
@@ -43,7 +64,7 @@ nv_migrate_images() {
         if [ "$signature" = NV-ORIGINAL-RECOVERY-V1 ] &&
            [ "$profile" = "$(cat /nv-new/etc/e5/device-profile)" ] &&
            [ "$cid" = "$(cat /sys/class/block/mmcblk0/device/cid)" ] &&
-           chroot /nv-new /usr/bin/python3 - verify < /etc/nv-persistence.py; then
+           nv_python_offline /nv-new verify; then
             result=0
         else result=1; fi
         # Consumed by nv-prepare only after the selected root actually starts.

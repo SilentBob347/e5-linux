@@ -36,9 +36,14 @@ def add_android_switcher(package):
     shutil.copy2(source / 'README.md', package / 'docs/ANDROID-SWITCHER.md')
 
 
+def add_diff_studio(package):
+    return runpy.run_path(str(HERE.parents[1] / 'tools/package-diff-studio.py'))['attach'](package)
+
+
 def finalize(package, profile, bootctl):
     package, bootctl = Path(package), Path(bootctl)
     add_android_switcher(package)
+    add_diff_studio(package)
     files = package / 'files'
     for name in ('OpenWrt-Installer.py', 'START-HERE.md', 'files/android-bootchain.sh',
                  'scripts/installer/boot-slots.py',

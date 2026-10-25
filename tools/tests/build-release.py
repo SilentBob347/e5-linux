@@ -102,6 +102,13 @@ class Ownership(unittest.TestCase):
 class Archives(unittest.TestCase):
     def fixture(self, path, *, corrupt=False, extra=None):
         files = {'files/boot.img': b'boot', 'files/openwrt.ext4.gz': b'root', 'OpenWrt-Installer.py': b'cli'}
+        runtime = {'OpenWrt-Diff-Studio.exe': b'native diff', 'OpenWrt-Diff-Studio.py': b'diff CLI',
+                   'OpenWrt-Diff-Studio.app/Contents/MacOS/openwrt-installer': b'mac diff',
+                   'tools/backend/openwrt-backend.exe': b'Windows backend',
+                   'tools/macos/backend/openwrt-backend': b'Mac backend'}
+        files.update(runtime)
+        files['diff-tool.json'] = json.dumps({'protocol': 1, 'files': {
+            n:hashlib.sha256(v).hexdigest() for n,v in runtime.items()}}).encode()
         if extra:files[extra] = b'duplicate root'
         sums = ''.join(hashlib.sha256(v).hexdigest() + '  ' + k + '\n' for k, v in files.items())
         if corrupt:files['files/boot.img'] = b'wrong'
@@ -124,6 +131,17 @@ class Archives(unittest.TestCase):
             self.fixture(path)
             with zipfile.ZipFile(path, 'a') as archive:archive.writestr('unrecorded', b'extra')
             with self.assertRaisesRegex(ValueError, 'Incomplete'):build.verify_archive(path)
+
+    def test_diff_tool_manifest_cannot_export_the_full_firmware(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'test.zip';self.fixture(path)
+            with zipfile.ZipFile(path) as z:files={n:z.read(n) for n in z.namelist() if n!='files/SHA256SUMS'}
+            meta=json.loads(files['diff-tool.json']);meta['files']['files/boot.img']=hashlib.sha256(files['files/boot.img']).hexdigest()
+            files['diff-tool.json']=json.dumps(meta).encode()
+            with zipfile.ZipFile(path,'w') as z:
+                for n,v in files.items():z.writestr(n,v)
+                z.writestr('files/SHA256SUMS',''.join(hashlib.sha256(v).hexdigest()+'  '+n+'\n' for n,v in files.items()))
+            with self.assertRaisesRegex(ValueError,'runtime scope'):build.verify_archive(path)
 
 
 class TaskState(unittest.TestCase):

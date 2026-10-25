@@ -60,7 +60,9 @@ part_update_pending() {
         nv_archive_offline "$mp" "$ram/nv.tar" || {
             umount "$mp"; part_fail 'NV preservation failed; old root kept'; return 1;
         }
-        actual=$(du -k "$mp/.e5-update/"* "$ram/nv.tar" | awk '{s+=$1} END {print s}')
+        # nv.tar is already in tmpfs and therefore already deducted from
+        # MemAvailable. Budget only the files still to be copied, not NV twice.
+        actual=$(du -k "$mp/.e5-update/"* | awk '{s+=$1} END {print s}')
         [ "$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)" -gt "$((actual + 262144))" ] || {
             umount "$mp"; part_fail 'insufficient NV preservation RAM'; return 1;
         }

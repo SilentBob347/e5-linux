@@ -78,7 +78,9 @@ def execute(client, command, timeout=1800):
     status = channel.recv_exit_status()
     channel.close()
     if status:
-        raise RuntimeError(f'device command failed (exit {status}); no success was reported')
+        lines = result.decode('utf-8', 'replace').strip().splitlines()
+        detail = ': '+lines[-1][:500] if lines else ''
+        raise RuntimeError(f'device command failed (exit {status}); no success was reported'+detail)
     return result.decode('utf-8', 'replace')
 
 
@@ -108,7 +110,7 @@ def upload(client, path, destination):
         raise RuntimeError('uploaded file checksum mismatch: ' + path.name)
 
 
-def save_nv_backup(client, stage, profile):
+def save_nv_backup(client, stage, profile, compress=False):
     """Persist a verified copy on the PC before any root/boot overwrite.
 
     The early-boot updater still captures the final, fully stopped working
@@ -117,9 +119,10 @@ def save_nv_backup(client, stage, profile):
     """
     if not re.fullmatch(r'[a-z][a-z0-9-]{0,40}', profile): raise ValueError('Invalid NV backup profile')
     policy = 'preserve'
+    archive_flags = ' --gzip' if compress else ''
     try:
         result = execute(client, 'if [ -e /opt/e5/nv ] || [ -L /opt/e5/nv ]; then '
-            'python3 '+shlex.quote(stage+'/nv-persistence.py')+' archive --lock > '+shlex.quote(stage+'/nv.tar')+'; '
+            'python3 '+shlex.quote(stage+'/nv-persistence.py')+' archive --lock'+archive_flags+' > '+shlex.quote(stage+'/nv.tar')+'; '
             'printf "NV-BACKUP "; sha256sum '+shlex.quote(stage+'/nv.tar')+' | cut -d" " -f1; '
             'else echo NV-NONE; fi')
     except Exception as error:
@@ -127,7 +130,7 @@ def save_nv_backup(client, stage, profile):
         # cannot be bypassed by merely clicking a recovery button.
         try:
             result = execute(client, 'python3 '+shlex.quote(stage+'/nv-persistence.py')+
-                ' factory-archive --lock > '+shlex.quote(stage+'/nv-original.tar')+'; '
+                ' factory-archive --lock'+archive_flags+' > '+shlex.quote(stage+'/nv-original.tar')+'; '
                 'printf "NV-BACKUP "; sha256sum '+shlex.quote(stage+'/nv-original.tar')+' | cut -d" " -f1')
         except Exception as source_error:
             raise ValueError('Original NV recovery could not be verified; nothing overwritten / '
@@ -149,7 +152,8 @@ def save_nv_backup(client, stage, profile):
     directory = base/'nv-updates'/(profile+'-'+time.strftime('%Y%m%d-%H%M%S')+'-'+uuid.uuid4().hex[:8])
     directory.mkdir(parents=True, mode=0o700)
     path = directory/'nv.tar'; checksum = hashlib.sha256()
-    record = {'profile': profile, 'time': int(time.time()), 'sha256': matches[0], 'ok': False, 'policy': policy}
+    record = {'profile': profile, 'time': int(time.time()), 'sha256': matches[0], 'ok': False,
+              'policy': policy, 'compression': 'gzip' if compress else 'none'}
     try:
         _, out, err = client.exec_command('cat '+shlex.quote(stage+'/nv.tar'), timeout=180)
         with path.open('xb') as stream:
@@ -218,9 +222,11 @@ def main():
         if a.check_only:
             print('Update preflight passed / 更新预检查通过: ' + profile + ', ' + layout)
             return
-        stage = '/tmp/e5-update-' + uuid.uuid4().hex
+        # Root-backed staging: a complete NV snapshot and uploaded image must
+        # not compete with the running screen/browser for tmpfs RAM.
+        stage = '/.e5-upload-' + uuid.uuid4().hex
         required = sum((files / n).stat().st_size for n in ('boot.img', 'openwrt.ext4.gz', 'ext4-tools.tar')) + (64 << 20)
-        execute(client, 'test "$(df -Pk /tmp | awk \'NR==2 {print $4}\')" -gt ' + str((required+1023)//1024) + '; mkdir -m 700 ' + stage)
+        execute(client, 'test "$(df -Pk / | awk \'NR==2 {print $4}\')" -gt ' + str((required+1023)//1024) + '; mkdir -m 700 ' + stage)
         # Internal partition updates carry the selection in the boot header,
         # allowing encrypted Android userdata to stay completely unmounted.
         with __import__('tempfile').TemporaryDirectory() as temporary:
@@ -233,7 +239,7 @@ def main():
                          'device-flash-boot.sh', 'device-stage-part-update.sh', 'e5-gpt', 'nv-persistence.py'):
                 upload(client, files / name, stage + '/' + name)
             upload(client, head, stage + '/boot-head.img')
-            nv_backup = save_nv_backup(client, stage, profile)
+            nv_backup = save_nv_backup(client, stage, profile, compress=layout in ('part', 'sd'))
             nv_policy = json.loads((nv_backup.parent/'backup.json').read_text())['policy'] if nv_backup else 'preserve'
             command = ('umask 077; mkdir -p /run/e5-upgrade; '
                 '[ ! -L /run/e5-upgrade ] && [ "$(stat -c %u:%a /run/e5-upgrade)" = 0:700 ]; '
@@ -258,7 +264,7 @@ def main():
             try:
                 execute(client, 'rm -rf ' + shlex.quote(stage), timeout=15)
             except Exception:
-                pass  # The device may already have restarted; /tmp is volatile.
+                pass  # A completed offline rewrite also removes its old staging.
         client.close()
 
 

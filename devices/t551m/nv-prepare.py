@@ -222,6 +222,15 @@ def main():
             fcntl.ioctl(stream, 0x125e, state, True)  # BLKROGET
             if struct.unpack('i', state)[0] != 1:
                 raise RuntimeError('Cannot protect ' + str(dev))
+    # Recover only an explicitly journaled writeback, before any vendor writer
+    # or working loop starts. The ordinary boot path performs no new NV IO.
+    if Path('/etc/e5-nv/writeback.json').exists():
+        if attached_loops(): raise RuntimeError('Detach NV loops before writeback recovery')
+        import sys
+        sys.path.insert(0, '/usr/lib/e5')
+        from nv_persistence import Manager
+        from nv_writeback import recover_writeback
+        recover_writeback(Manager())
     STORE.mkdir(mode=0o700, exist_ok=True)
     manifest = STORE / 'factory-sha256.json'
     original = json.loads(manifest.read_text()) if manifest.exists() else {}

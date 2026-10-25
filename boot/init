@@ -74,7 +74,7 @@ persist() {
         cat /run/stages
         for f in /run/f2fs-before.log /run/f2fs-repair.log /run/f2fs-after.log \
                  /run/part-fsck.log /run/part-resize.log /run/part-shrink-check.log \
-                 /run/part-carve.log /run/part-growfs.log /run/part-dd.err; do
+                 /run/part-carve.log /run/part-growfs.log /run/part-dd.err /run/nv-preserve.err; do
             [ ! -f "$f" ] || { echo "--- $f"; tail -c 131072 "$f"; }
         done
         echo "--- cmdline"; cat /proc/cmdline

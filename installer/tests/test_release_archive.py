@@ -57,6 +57,7 @@ class ReleaseArchiveTest(unittest.TestCase):
             package = root/'package'
             executables = (
                 'OpenWrt-Installer.app/Contents/MacOS/openwrt-installer',
+                'OpenWrt-Diff-Studio.app/Contents/MacOS/openwrt-installer',
                 'tools/macos/adb', 'tools/macos/backend/openwrt-backend',
                 'tools/macos/backend/_internal/native.so',
                 'launchers/start-installer.sh',

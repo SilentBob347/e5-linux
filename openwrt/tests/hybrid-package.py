@@ -71,7 +71,8 @@ class Package(unittest.TestCase):
         for profile in finish['MODELS']:
             with self.subTest(profile=profile), tempfile.TemporaryDirectory() as folder:
                 root = Path(folder); package = self.fixture(root, profile)
-                hashes = finish['finalize'](package, profile, root / 'bootctl')
+                with patch.dict(finish['finalize'].__globals__, {'add_diff_studio': lambda p:None}):
+                    hashes = finish['finalize'](package, profile, root / 'bootctl')
                 self.assertEqual({p.name for p in package.iterdir() if p.is_file()},
                                  {'OpenWrt-Installer.py', 'START-HERE.md', 'customize.sh', 'module.prop', 'skip_mount'})
                 self.assertEqual(len(list(package.rglob('*.ext4.gz'))), 1)
@@ -109,7 +110,8 @@ class Package(unittest.TestCase):
                 elif damage == 'boot': (package / 'files/boot.img').write_bytes(b'different boot')
                 elif damage == 'busybox': (package / 'files/busybox').write_bytes(b'not static ARM64')
                 else: (package / 'files/busybox').unlink()
-                with self.assertRaises(ValueError): finish['finalize'](package, 'e5', root / 'bootctl')
+                with patch.dict(finish['finalize'].__globals__, {'add_diff_studio': lambda p:None}):
+                    with self.assertRaises(ValueError): finish['finalize'](package, 'e5', root / 'bootctl')
                 self.assertFalse((package / 'customize.sh').exists())
 
 

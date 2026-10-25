@@ -24,10 +24,11 @@ def archive(path, files):
 
 
 class OfflineUpdate(unittest.TestCase):
-    def exercise(self, fault='ok', kind='part', raw_card=False, nv_present=False, original=False):
+    def exercise(self, fault='ok', kind='part', raw_card=False, nv_present=False, original=False, ram_after_nv=None):
         with tempfile.TemporaryDirectory(prefix='e5-offline-update-') as folder:
             root = Path(folder)
             old = root / 'old'; new = root / 'new'; ram = root / 'run'
+            (old/'dev').mkdir(parents=True)
             pending = old / '.e5-update'; pending.mkdir(parents=True)
             (old / 'etc/e5').mkdir(parents=True)
             (old / 'etc/e5/part-root').write_text('e5root /dev/mmcblk0\n')
@@ -53,6 +54,7 @@ class OfflineUpdate(unittest.TestCase):
                 (old / 'etc/e5/part-root').unlink()
                 (old / 'etc/e5/sd-root').write_text('e5-openwrt-sd\n')
             base = root / 'base'; (base / 'etc/e5').mkdir(parents=True)
+            (base/'dev').mkdir()
             (base / 'etc/e5-infoscreen/plugins/phone').mkdir(parents=True)
             (base / 'etc/e5-infoscreen/plugins/phone/phone.js').write_text('new phone code')
             (base / 'etc/e5/device-profile').write_text('t551m\n')
@@ -105,15 +107,18 @@ class OfflineUpdate(unittest.TestCase):
             helpers.write_text('part_progress_start() { :; }; part_stop() { :; }; part_fail() { echo "FAIL $*"; return 1; };\n'+
                 ('part_grow_ext4() { return 1; }\n' if fault == 'grow' else grow))
             nv_helpers=root/'nv-preserve.sh'
-            nv_helpers.write_text((TOP/'boot/nv-preserve.sh').read_text().replace('/etc/nv-persistence.py',str(nv_source)))
+            nv_helpers.write_text((TOP/'boot/nv-preserve.sh').read_text().replace('/etc/nv-persistence.py',str(nv_source))
+                                  .replace('/run/nv-preserve.err',str(root/'nv-preserve.err')))
             code = SOURCE
             for a,b in (('/part-update-old',str(mountpoint)),('/part-update-new',str(new)),('/run/',str(ram)+'/'),
                 ('/proc/',str(root / 'proc')+'/'),('/sys/',str(root / 'sys')+'/'),('/dev/',str(root / 'dev')+'/'),
                 ('/etc/part-progress.sh',str(helpers)),('/etc/nv-preserve.sh',str(nv_helpers)),('/etc/misc-bc-slot-b-trial.bin',str(root / 'bc'))):
                 code = code.replace(a,b)
-            harness = f'''
-mount() {{ for dest; do :; done; if [ "$dest" = "{mountpoint}" ]; then cp -a "{old}/." "$dest/"; else debugfs -R "rdump / $dest" "{device}" >/dev/null 2>&1; fi; }}
-chroot() {{ nvroot=$1; shift 2; command python3 "$@" --root "$nvroot"; }}
+            memory_hook=f'rc=$?; printf "MemAvailable: {ram_after_nv} kB\\n" > "{root}/proc/meminfo"; return "$rc";' if ram_after_nv is not None else ''
+            du_hook='du() { [ "$1" != -k ] || shift; for p; do case "$p" in */nv.tar|*/opt/e5/nv) printf "327680 %s\\n" "$p";; *) command du -k "$p";; esac; done; }\n' if ram_after_nv is not None else ''
+            harness = du_hook+f'''
+mount() {{ [ "$1" != --bind ] || return 0; for dest; do :; done; if [ "$dest" = "{mountpoint}" ]; then cp -a "{old}/." "$dest/"; else debugfs -R "rdump / $dest" "{device}" >/dev/null 2>&1; fi; }}
+chroot() {{ nvroot=$1; shift 2; command python3 "$@" --root "$nvroot"; {memory_hook} }}
 umount() {{ echo "unmount $1" >> "{root}/calls"; {'[ "$1" != "'+str(new)+'" ] || printf corrupt > "'+str(new)+'/lib/firmware/wcnmodem.bin";' if fault == 'readback' else ':;'} }}
 blockdev() {{ [ "$1" != --getsize64 ] || echo {96<<20}; }}
 dd() {{ echo WRITE >> "{root}/calls"; {'return 1;' if fault == 'write' else 'command dd "$@";'} }}
@@ -153,6 +158,7 @@ reboot() {{ echo REBOOT >> "{root}/calls"; }}
 
     def test_update_preserves_capacity_settings_firmware_and_new_phone_code(self): self.exercise()
     def test_internal_update_preserves_complete_nv_and_origin(self): self.exercise(nv_present=True)
+    def test_allocated_nv_archive_is_not_counted_against_remaining_ram(self): self.exercise(nv_present=True,ram_after_nv=550000)
     def test_tf_update_preserves_complete_nv_and_origin(self): self.exercise(kind='sd',nv_present=True)
     def test_invalid_nv_stops_before_overwriting_old_root(self): self.exercise('nv-corrupt',nv_present=True)
     def test_confirmed_original_nv_recovers_invalid_work_internal(self): self.exercise(nv_present=True,original=True)

@@ -1316,6 +1316,7 @@ var DASH_I18N = {
 	'簇': ['Cluster ', 'Küme '],
 	'否': ['No', 'Hayır'],
     '接入点 APN': ['Access points (APN)', 'Erişim noktaları (APN)'],
+    '基带NV设置': ['Baseband NV settings', 'Temel bant NV ayarları'],
     '请先升级 ModemManager 以支持 APN 鉴权': ['Upgrade ModemManager first to support APN authentication', 'APN kimlik doğrulaması için önce ModemManager’ı yükseltin'],
     '无法读取当前 SIM 身份，请稍后重试': ['Cannot read the current SIM identity; try again later', 'Geçerli SIM kimliği okunamadı; daha sonra tekrar deneyin'],
     '此接入点仍被 SIM 使用，不能删除': ['This profile is still assigned to a SIM and cannot be deleted', 'Bu profil hâlâ bir SIM’e atanmış; silinemez'],

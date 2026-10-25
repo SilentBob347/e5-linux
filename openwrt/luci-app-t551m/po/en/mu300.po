@@ -41,5 +41,5 @@ msgstr "Ringtones & notifications"
 msgid "接入点 APN"
 msgstr "Access points (APN)"
 
-msgid "NV 持久化设置"
-msgstr "NV persistence"
+msgid "基带NV设置"
+msgstr "Baseband NV settings"

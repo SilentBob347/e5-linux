@@ -72,7 +72,7 @@ if [ -d "$DEST/etc/config" ]; then
 fi
 
 if [ -e "$DEST/opt/e5/nv" ] || [ -L "$DEST/opt/e5/nv" ]; then
-    nvarchive=$(mktemp /tmp/e5-dir.nv.XXXXXX)
+    nvarchive=$(mktemp /opt/e5-dir.nv.XXXXXX)
     python3 "$NEW/usr/lib/e5/nv_persistence.py" archive --root "$DEST" > "$nvarchive" || {
         python3 "$NEW/usr/lib/e5/nv_persistence.py" factory-confirmed > "$nvarchive" || {
             echo 'NV recovery not confirmed/available; old tree retained' >&2; exit 1;
