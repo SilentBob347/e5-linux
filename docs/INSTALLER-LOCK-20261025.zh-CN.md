@@ -6,7 +6,7 @@
 
 修复使用永久保留 inode 的 `e5-part-write.flock`，在父 shell 的 FD 9 上获取内核锁。
 父进程和继承 FD 的写入子进程退出后自动释放，不能通过删除锁文件创建第二把锁。
-安装器 BusyBox 没有 flock，因此把已经验证的 OpenWrt flock 与依赖一起放入 ext4-tools，
+安装器 BusyBox 没有 flock，因此把已经验证的 OpenWrt flock 与依赖一起放入独立 `install-lock-tools.tar` 增补包，
 不依赖 Android／Magisk 是否另有该工具。
 
 工具与校验先在独立临时目录完成；清理钩子从目录创建前生效。
@@ -17,5 +17,7 @@
 本地四项实际内核锁测试通过：空旧锁恢复、竞争拒绝、SIGKILL 后重试、旧活跃进程保护、
 未知文件／符号链接保护。Android 分区写入相关 10 项及两阶段流程 13 项通过；
 实际 ARM64 flock 在临时 chroot 中验证了父 FD 持锁与关闭后释放。
+
+原 `ext4-tools.tar`、boot 和 rootfs 保持字节一致，可继续已有安装记录；增补包只提供缺少的 flock 和依赖。
 
 这是安装脚本与工具包修复，可从已验证发布流式更新 ZIP，不需要重新构建系统／内核。

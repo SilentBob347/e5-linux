@@ -9,6 +9,7 @@ import copy
 import hashlib
 import io
 import json
+import runpy
 from pathlib import Path
 import zipfile
 
@@ -25,11 +26,12 @@ def digest(path):
 def refresh(source,target,tools,revision):
     if target.exists():raise ValueError('Installer refresh target already exists')
     replacement={'files/part-write.sh':(TOP/'openwrt/bundle/part-write.sh').read_bytes().replace(b'\r\n',b'\n'),
-                 'files/ext4-tools.tar':tools.read_bytes()}
+                 'scripts/installer/part-two-stage.py':(TOP/'openwrt/bundle/part-two-stage.py').read_bytes().replace(b'\r\n',b'\n')}
     with zipfile.ZipFile(source) as original:
+        replacement['files/install-lock-tools.tar']=runpy.run_path(str(TOP/'openwrt/prepare-ext4-tools.py'))['lock_addon'](original.read('files/ext4-tools.tar'),tools)
         sums={name:checksum for line in original.read('files/SHA256SUMS').decode().splitlines()
               for checksum,name in [line.split(None,1)]}
-        payload={n:sums[n] for n in ('files/boot.img','files/openwrt.ext4.gz')}
+        payload={n:sums[n] for n in ('files/boot.img','files/openwrt.ext4.gz','files/ext4-tools.tar')}
         record={'format':1,'kind':'installer-only','source_commit':revision['source_commit'],
                 'source_fingerprint':revision['source_fingerprint'],'base_archive':source.name,
                 'base_sha256':digest(source),'firmware_unchanged':payload,

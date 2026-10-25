@@ -294,7 +294,7 @@ def refresh_installers(task, common, rows, source):
     temporary_parent=task.workspace/'tmp';temporary_parent.mkdir(parents=True,exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='e5-release-',dir=temporary_parent) as temporary:
         tools=Path(temporary)/'ext4-tools.tar'
-        task.run('installer-tools',[sys.executable,TOP/'openwrt/prepare-ext4-tools.py','--root',common['base'],'--out',tools])
+        task.run('installer-tools',[sys.executable,TOP/'openwrt/prepare-ext4-tools.py','--root',common['base'],'--include-lock','--out',tools])
         for profile,path in selected.items():
             target=pending/(path.stem+'-installer-g'+before['source_commit'][:8]+'.zip')
             refresh(path,target,tools,before);verify_archive(target)

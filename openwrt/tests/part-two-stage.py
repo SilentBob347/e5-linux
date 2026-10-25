@@ -158,7 +158,7 @@ class TwoStage(unittest.TestCase):
                 struct.pack_into('<I', image, 40, 4)
                 image[44:1580] = b'e5.part_v=2'.ljust(1536,b'\0')
                 for name, data in [('boot.img',image),('openwrt.ext4.gz',b'payload'),
-                                   ('ext4-tools.tar',b'tools'),('part-write.sh',b'writer'),('nv-persistence.py',b'helper')]:
+                                   ('ext4-tools.tar',b'tools'),('install-lock-tools.tar',b'lock tools'),('part-write.sh',b'writer'),('nv-persistence.py',b'helper')]:
                     (files/name).write_bytes(data)
                 raw = (b'bootonce-bootloader' if command == 'loader' else b'boot-recovery').ljust(2048,b'\0')
                 events=[]; saved=[]
@@ -320,6 +320,7 @@ class TwoStage(unittest.TestCase):
             (files/'boot.img').write_bytes(bytes(boot))
             (files/'openwrt.ext4.gz').write_bytes(b'\0' * 64)
             (files/'ext4-tools.tar').write_bytes(b'\0')
+            (files/'install-lock-tools.tar').write_bytes(b'lock tools')
             (files/'part-write.sh').write_bytes(b'\0')
             (files/'nv-persistence.py').write_bytes(b'helper')
             seen = {}

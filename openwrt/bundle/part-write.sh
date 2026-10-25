@@ -43,6 +43,8 @@ trap 'exit 1' INT TERM HUP
 stage=$(mktemp -d /data/local/tmp/e5-part-tools.XXXXXX)
 tar -xf /data/local/tmp/e5-ext4-tools.tar -C "$stage"
 (cd "$stage" && sha256sum -c SHA256SUMS)
+tar -xf /data/local/tmp/e5-install-lock-tools.tar -C "$stage"
+(cd "$stage" && sha256sum -c INSTALL-LOCK-SHA256SUMS)
 # The bundled installer BusyBox lacks flock. Ship the checked OpenWrt tool and
 # its loader in ext4-tools instead of depending on Android's command set.
 guard=/data/local/tmp/e5-part-write.flock

@@ -230,6 +230,7 @@ def main():
     with (files / 'openwrt.ext4.gz').open('wb') as out:
         run('gzip', '-1', '-c', image, stdout=out)
     runpy.run_path(str(TOP / 'openwrt/prepare-ext4-tools.py'))['build'](root, files / 'ext4-tools.tar')
+    runpy.run_path(str(TOP / 'openwrt/prepare-ext4-tools.py'))['build_lock'](root, files / 'ext4-tools.tar', files / 'install-lock-tools.tar')
     runpy.run_path(str(TOP / 'openwrt/bundle/install-entrypoints.py'))['assemble'](package)
     extras = package / 'extras'; extras.mkdir()
     shutil.copy2(TOP / 'openwrt/bundle/【插件】mu300系统切换器.js', extras / 'openwrt-system-switch-plugin.js')

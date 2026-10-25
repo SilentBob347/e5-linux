@@ -183,7 +183,7 @@ def start(g, a, node, part_mib, data_mib, grow, raw_size, apn, ssid, key):
     normal = (files / 'boot.img').read_bytes()
     # Refuse stale packages BEFORE modifying boot chain or partitions.
     boot_command(normal, 'e5.root=part')
-    for name in ('ext4-tools.tar', 'part-write.sh', 'nv-persistence.py'):
+    for name in ('ext4-tools.tar', 'install-lock-tools.tar', 'part-write.sh', 'nv-persistence.py'):
         if not (files / name).is_file():
             raise ValueError('new package required: missing ' + name)
     rows = probe(g)
@@ -392,7 +392,7 @@ def reinstall(g, a):
     boot_b is replaced and slot b armed.  No preparation stage, no wipe.
     """
     files = Path(g['F'])
-    for name in ('ext4-tools.tar', 'part-write.sh', 'nv-persistence.py'):
+    for name in ('ext4-tools.tar', 'install-lock-tools.tar', 'part-write.sh', 'nv-persistence.py'):
         if not (files / name).is_file():
             raise ValueError('new package required: missing ' + name)
     # Refuse a stale package before touching boot_b or the partition.
@@ -478,6 +478,7 @@ def finish(g, a, path, state):
             g['pull_device_files'](work, g['TMP'] + '/e5-device-files.tar')
             g['push'](str(files/'openwrt.ext4.gz'), g['TMP']+'/openwrt.ext4.gz', 'OpenWrt')
             g['push'](str(files/'ext4-tools.tar'), g['TMP']+'/e5-ext4-tools.tar', 'ext4 tools')
+            g['push'](str(files/'install-lock-tools.tar'), g['TMP']+'/e5-install-lock-tools.tar', 'installation lock tools')
             settings = Path(work)/'install.conf'
             settings.write_bytes(("E5_APN='%s'\nE5_WIFI_SSID='%s'\nE5_WIFI_KEY='%s'\nE5_DEFAULT_BOOT='linux'\n" %
                                 (state['apn'], state['ssid'], state['key'])).encode('utf-8'))

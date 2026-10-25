@@ -149,6 +149,8 @@ tar -tf "$OUT/ext4-tools.tar" | grep -qx 'ext4-geometry.sh' || {
     echo 'ext4-tools.tar is stale: rebuild it with openwrt/prepare-ext4-tools.py before packaging' >&2; exit 1;
 }
 cp "$OUT/ext4-tools.tar" "$P/files/"
+test -f "$OUT/install-lock-tools.tar" || { echo 'Missing install-lock-tools.tar: prepare-ext4-tools.py --root CLEAN_ARM64_ROOT --lock-addon-from out/openwrt/ext4-tools.tar --out out/openwrt/install-lock-tools.tar' >&2; exit 1; }
+cp "$OUT/install-lock-tools.tar" "$P/files/"
 cp "$TOP/LICENSE" "$P/docs/LICENSE"
 cp "$IMG" "$P/files/openwrt.ext4.gz"
 cp "$BOOT.img" "$P/files/boot.img"
