@@ -38,6 +38,9 @@
         ],
         "e5-sms": [
           "forward_log"
+        ],
+        "unisoc-network-performance": [
+          "get"
         ]
       },
       "uci": {
@@ -63,6 +66,9 @@
         ],
         "e5-sms": [
           "forward_test"
+        ],
+        "unisoc-network-performance": [
+          "apply"
         ]
       },
       "uci": {

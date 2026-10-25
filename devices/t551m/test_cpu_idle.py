@@ -31,10 +31,16 @@ class CpuIdleStage(unittest.TestCase):
                         config=root/'etc/unisoc-cpu-idle.json'
                         config.parent.mkdir(parents=True)
                         config.write_text('{"version":1,"enabled":false}\n')
+                        network=root/'etc/unisoc-network-performance.json'
+                        network.write_text('{"version":1,"algorithm":"bbr"}\n')
                         stage(root,profile)
                         stage(root,profile)
                         self.assertEqual(json.loads(config.read_text()),{'version':1,'enabled':False})
                         self.assertTrue((root/'etc/rc.d/S99unisoc-cpu-idle').is_symlink())
+                        self.assertEqual(json.loads(network.read_text()),{'version':1,'algorithm':'bbr'})
+                        self.assertTrue((root/'etc/rc.d/S19unisoc-network-performance').is_symlink())
+                        for name in ('usr/libexec/unisoc-modem/network-performance','usr/libexec/rpcd/unisoc-network-performance','etc/init.d/unisoc-network-performance'):
+                            self.assertEqual((root/name).stat().st_mode&0o777,0o755)
                         for name in ('usr/libexec/unisoc-modem/cpu-idle','usr/libexec/unisoc-modem/cpu-idle.uc','usr/libexec/rpcd/unisoc-cpu-idle','etc/init.d/unisoc-cpu-idle'):
                             self.assertEqual((root/name).stat().st_mode&0o777,0o755)
                         self.assertEqual((root/'usr/libexec/unisoc-modem/cpu-idle.uc').read_bytes(),(TOP/'openwrt/luci-app-t551m/root/usr/libexec/unisoc-modem/cpu-idle.uc').read_bytes().replace(b'\r\n',b'\n'))

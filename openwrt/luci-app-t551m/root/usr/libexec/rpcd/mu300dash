@@ -89,13 +89,10 @@ m_signal() {
     # During a lock apply the protocol stack is restarting: live AT reads in
     # that window return garbage or wedge, and rpcd died with a userspace
     # segfault (sessions wiped -> LuCI login loop) on at least one live
-    # read's output. Serve the last snapshot until the apply finishes.
+    # read's output. Report pending; the view retains its last completed live
+    # snapshot without pretending cached data is a newly completed AT round.
     if [ -d /run/unisoc-modem-lock-apply ]; then
-        if [ -s "$SIGF" ]; then
-            cat "$SIGF"
-        else
-            printf '{"error":"正在应用网络锁定，暂无实时信号"}\n'
-        fi
+        printf '{"busy":1,"error":"busy"}\n'
         return
     fi
     local live="$DIR/live.$$"
@@ -103,10 +100,14 @@ m_signal() {
     # The output is deliberately uncached, but the modem channel is not
     # unbounded parallel work. The collector claims one of the verified
     # slot-0 nr6/nr7 channels and drops excess overlap immediately.
+    local result=0
     MU300_DASH_DIR="$live" MU300_DASH_LOCK_DIR="$DIR" \
         "$DASH/cell" fast >/dev/null 2>&1
+    result=$?
     if [ -s "$live/sig.json" ]; then
         cat "$live/sig.json"
+    elif [ "$result" = 75 ]; then
+        printf '{"busy":1,"error":"busy"}\n'
     else
         printf '{"error":"live signal read failed"}\n'
     fi

@@ -123,16 +123,17 @@ ims_number() {
 # the same "one owner, spare waits/takes over" pattern mu300-atd uses, so two
 # kicks (page reload while a refresh runs) cannot interleave AT replies
 alive() { [ -n "$1" ] && [ -d "/proc/$1" ] && tr '\0' ' ' < "/proc/$1/cmdline" 2>/dev/null | grep -q '/unisoc-modem/cell'; }
+collector_busy() { [ "$MODE" != fast ] || exit 75; exit 0; }
 take_lock() {  # take_lock DIRVAR - drop overlap, take over a dead holder
     local lock=$1 owner
     while ! mkdir "$lock" 2>/dev/null; do
         owner=$(cat "$lock/pid" 2>/dev/null || true)
         if alive "$owner"; then
-            exit 0
+            collector_busy
         fi
         # mkdir and writing pid are two operations. An empty pid here is the
         # acquisition window of a live peer, not proof of a stale lock.
-        [ -n "$owner" ] || exit 0
+        [ -n "$owner" ] || collector_busy
         rm -rf "$lock"
     done
     echo $$ > "$lock/pid"
@@ -158,7 +159,7 @@ for n in 6 7; do
         if mkdir "$s" 2>/dev/null; then SLOT=$s; ATC=$n; break; fi
     fi
 done
-[ -n "$SLOT" ] || { rm -f "$LOCK/pid"; rmdir "$LOCK" 2>/dev/null; exit 0; }
+[ -n "$SLOT" ] || { rm -f "$LOCK/pid"; rmdir "$LOCK" 2>/dev/null; collector_busy; }
 echo $$ > "$SLOT/pid"
 trap 'rm -rf "$LOCK" "$SLOT" 2>/dev/null' EXIT INT TERM
 

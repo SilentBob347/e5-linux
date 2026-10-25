@@ -52,6 +52,24 @@ class DiffPackaging(unittest.TestCase):
             self.assertFalse(any('Installer' in n or n.startswith('files/') or 'adb' in n for n in names))
             self.assertEqual(names.count('update.ota'),1)
 
+    def test_export_restores_mac_execute_bits_from_windows_style_modes(self):
+        manifest=tool['attach'](self.root)
+        executable='OpenWrt-Diff-Studio.app/Contents/MacOS/openwrt-installer'
+        backend='tools/macos/backend/openwrt-backend'
+        library='tools/macos/backend/_internal/libpython-test.dylib'
+        path=self.root/library;path.parent.mkdir(parents=True,exist_ok=True)
+        path.write_bytes(b'\xcf\xfa\xed\xfe library fixture')
+        manifest['files'][library]=hashlib.sha256(path.read_bytes()).hexdigest()
+        (self.root/'diff-tool.json').write_text(json.dumps(manifest))
+        for name in (executable,backend,library):(self.root/name).chmod(0o644)
+        patch=self.root.parent/'test.ota';patch.write_bytes(b'opaque fixture')
+        target=self.root.parent/'patch.zip';export_bundle(patch,target,self.root)
+        with zipfile.ZipFile(target) as z:
+            for name in (executable.replace('Diff-Studio','Updater'),backend,library):
+                self.assertEqual((z.getinfo(name).external_attr>>16)&0o777,0o755)
+            self.assertEqual(z.read(executable.replace('Diff-Studio','Updater')),(self.root/executable).read_bytes())
+            self.assertFalse((z.getinfo('OpenWrt-Updater.app/Contents/Info.plist').external_attr>>16)&0o111)
+
     def test_stale_native_and_duplicate_attachment_refused(self):
         (self.root/'tools/backend/openwrt-backend.exe').write_bytes(b'tampered')
         with self.assertRaisesRegex(ValueError,'native input mismatch'):tool['attach'](self.root)

@@ -16,7 +16,7 @@ with sync_playwright() as p:
         window.devices=[{name:'eth1',driver:'r8152',mac:'02:11:22:33:44:55',carrier:1,in_lan:1,bound:1},
             {name:'eth2',driver:'cdc_ncm',carrier:1,in_lan:0,bound:0,managed_elsewhere:1}];
         window.calls=[];window.messages=[];
-        window.Charge={mount(){}};
+        window.Charge={mount(){}};window.NetworkPerformance={mount:()=>({dispose(){}})};
         window.L={resolveDefault:(promise,fallback)=>promise.catch(()=>fallback)};
         window.M={ injectCss(){},localizeMenu(){},localize(){},translate:s=>s,
             busy:(button,on)=>{button.disabled=on},confirmBox:()=>Promise.resolve(true),

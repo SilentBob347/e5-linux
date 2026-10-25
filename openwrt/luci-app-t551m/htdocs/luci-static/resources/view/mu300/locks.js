@@ -311,11 +311,11 @@ return view.extend({
 		clearTimeout(this._lockRetry);
 		if (this._poll) poll.remove(this._poll);
 	},
-	loading: function(part, pending, error) {
+	loading: function(part, pending, error, notice) {
 		var el = this.Q && this.Q(part + '-loading'); if (!el) return;
 		el.hidden = !pending && !error;
 		el.classList.toggle('is-error', !!error);
-		var text = error || ({serving:'正在读取服务小区…',lock:'正在读取锁定设置…',neigh:'正在读取邻小区…'})[part];
+		var text = notice || error || ({serving:'正在读取服务小区…',lock:'正在读取锁定设置…',neigh:'正在读取邻小区…'})[part];
 		var html = (pending ? '<i class="mud-loading-spinner" aria-hidden="true"></i>' : '') + '<span>' + M.esc(M.translate(text)) + '</span>';
 		if (el.innerHTML !== html) el.innerHTML = html;
 	},
@@ -372,7 +372,10 @@ return view.extend({
 		if (this._disposed || this._signalRequest) return this._signalRequest;
 		this._signalRequest = M.callSignal().then(function(live) {
 			if (self._disposed) return;
-			if (!live || live.error) throw new Error(live && live.error || '信号读取失败');
+			if (live && (live.busy || live.error === 'busy')) {
+				self.loading('serving', true, null, 'AT 通道正忙，正在等待更新…'); return;
+			}
+			if (!live || live.error || !live.ts) throw new Error(live && live.error || '模组尚未返回有效的实时信号');
 			self.lastSignal = live; self._liveLoaded = true;
 			self.loading('serving', false); self.mergeServing();
 		}).catch(function(error) {
