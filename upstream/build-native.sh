@@ -28,6 +28,7 @@ echo "== cross gcc $("$X"gcc -dumpversion) ($X)"
 
 cd "$K"
 python3 "$TOP/devices/common/display.py" .
+python3 "$TOP/devices/e5/panel-dither.py" .
 python3 "$TOP/devices/common/power.py" .
 python3 "$TOP/devices/common/emmc.py" .
 python3 "$TOP/devices/common/eic.py" .

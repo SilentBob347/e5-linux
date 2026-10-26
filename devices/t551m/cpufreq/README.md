@@ -38,10 +38,13 @@ including temperature-specific tables and transition delays. Runtime reinitializ
 would mutate tables repeatedly, so module unloading and sysfs rebinding are disabled.
 The backend loads the module once, at S13, before the charger-only boot gate.
 
-Verified SML images (both slots must contain the same image, 1 MiB including its header):
+Verified SML images (both slots must match; 1 MiB partition hashes unless noted):
 
 - T551M: `c3ab5b763cbcfd09d1a4e8f598ed703c739a2081682f8278276dba4581cd1c44`.
 - E5: `51ab807ce7c13795e134031b81f6f6b904da38a771c166ce4e279f93dac72890`.
+- LYM-10K-V32 uses its complete 157224-byte signed DHTB image, with its own
+  length-bound identity check instead of hashing unused partition padding.
+  See [the LYM CPU/SMC evidence](../../lym10k/CPU-POWER.zh-CN.md).
 - T512N/PB8: `b0beb84a18b4d823bf62ec1ea36a46b960b5ea0a54433d449d8a007968879075`.
   Its own decoder, paired CPU/SRAM tables and identical selector arithmetic
   are documented in [the T512N CPU/power notes](../../t512n/CPU-POWER.zh-CN.md).

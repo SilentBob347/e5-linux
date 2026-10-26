@@ -72,7 +72,8 @@ set -euo pipefail
 # 37: retain Unisoc call identity after a failed/ambiguous accept result.
 # 38: finish collection when the complete internal SIPC port bank is present.
 # 39: empty C5GREG NSSAI must not consume the final OK as registration data.
-E5REV=39
+# 40: defer optional secondary IMSI until connected, preserving slot presence.
+E5REV=40
 VER=${E5_WRT_VER:-25.12.5}
 HERE="$(cd "$(dirname "$0")" && pwd)"
 TOP="$(cd "$HERE/.." && pwd)"
@@ -92,6 +93,7 @@ cp "$HERE/tests/voice-identity.py" "$WORK/voice-identity.py"
 cp "$HERE/tests/modem-port-set-ready.py" "$WORK/modem-port-set-ready.py"
 cp "$HERE/tests/c5greg-empty-nssai.py" "$WORK/c5greg-empty-nssai.py"
 cp "$HERE/tests/sim-power.py" "$WORK/sim-power.py"
+cp "$HERE/tests/secondary-sim-metadata.py" "$WORK/secondary-sim-metadata.py"
 cp "$HERE/tests/sim-events.py" "$WORK/sim-events.py"
 cp "$HERE/tests/voice-urc.py" "$WORK/voice-urc.py"
 cp "$HERE/tests/voice-recovery.py" "$WORK/voice-recovery.py"
@@ -208,6 +210,7 @@ python3 /work/voice-identity.py "$(dirname "$voice_source")"
 python3 /work/modem-port-set-ready.py "$(dirname "$voice_source")/mm-plugin-manager.c"
 python3 /work/c5greg-empty-nssai.py "$(dirname "$voice_source")/mm-modem-helpers.c"
 python3 /work/sim-power.py "$(dirname "$voice_source")"
+python3 /work/secondary-sim-metadata.py "$(dirname "$voice_source")"
 python3 /work/sim-events.py "$(dirname "$voice_source")"
 python3 /work/voice-urc.py "$(dirname "$voice_source")"
 python3 /work/voice-recovery.py "$(dirname "$voice_source")"

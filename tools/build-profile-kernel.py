@@ -11,11 +11,12 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import stat
 import subprocess
 
 TOP = Path(__file__).resolve().parents[1]
 OWNER = 'e5-profile-kernel-overlay-v1'
-PROFILES = ('e5', 't551m', 'm8', 't512n')
+PROFILES = ('e5', 't551m', 'm8', 't512n', 'lym10k')
 
 
 def git(tree, *args):
@@ -50,6 +51,49 @@ def owned_path(root, name):
         if parent.is_symlink():
             raise ValueError('Symlink source parent: '+str(parent))
     return p
+
+
+def review_shadowed_lower(workspace, lower, profile, revision):
+    """Refresh registration only when every donor edit is fully shadowed.
+
+    The private upperdir already stores the baseline/board adaptation or a
+    whiteout for each donor path. A donor change behind such an entry cannot
+    alter the build view. Unknown/unshadowed paths still require manual review.
+    Run under build-release.py's workspace lock, with the view unmounted.
+    """
+    workspace, lower = workspace.resolve(), lower.resolve()
+    if profile not in PROFILES or not lower.is_relative_to(workspace):
+        raise ValueError('Use a registered model and existing workspace kernel')
+    if git(lower, 'rev-parse', 'HEAD').decode().strip() != revision:
+        raise ValueError('Kernel revision differs from the registered baseline')
+    parent = workspace/'kernel-views'/profile
+    upper, view, marker = parent/'upper', parent/'source', parent/'owner.json'
+    if any(p.is_symlink() for p in (workspace/'kernel-views', parent, upper, view, marker)) or os.path.ismount(view):
+        raise ValueError('Unsafe or active profile view')
+    record = json.loads(marker.read_text())
+    expected = {'owner': OWNER, 'profile': profile, 'lower': str(lower), 'revision': revision}
+    if any(record.get(k) != v for k, v in expected.items()):
+        raise ValueError('Profile view identity differs from registered inputs')
+    if (upper/'.git').read_bytes() != (view/'.git').read_bytes():
+        raise ValueError('Private profile indexes differ')
+    fingerprint, changed, extra = inventory(lower)
+    audit = []
+    for name in sorted(set(changed + extra)):
+        path = owned_path(upper, name)
+        if not os.path.lexists(path):
+            raise ValueError('Unshadowed donor change: '+name)
+        mode = path.lstat().st_mode
+        whiteout = stat.S_ISCHR(mode) and path.lstat().st_rdev == os.makedev(0, 0)
+        if not (stat.S_ISREG(mode) or stat.S_ISLNK(mode) or whiteout):
+            raise ValueError('Unsupported upper entry: '+name)
+        audit.append({'path': name, 'kind': 'whiteout' if whiteout else 'private-file'})
+    # Recheck before the sole write: no source/objects or patch contents change.
+    if inventory(lower)[0] != fingerprint:
+        raise ValueError('Donor changed during review')
+    print(json.dumps({'profile': profile, 'old': record['lower_fingerprint'],
+                      'new': fingerprint, 'shadowed': audit}), flush=True)
+    record['lower_fingerprint'] = fingerprint
+    marker.write_text(json.dumps(record, indent=2)+'\n')
 
 
 @contextmanager
@@ -128,6 +172,8 @@ def main():
     p.add_argument('--workspace', type=Path, required=True)
     p.add_argument('--profile', choices=PROFILES, required=True)
     p.add_argument('--jobs', type=int, default=8)
+    p.add_argument('--review-shadowed-lower', action='store_true',
+                   help='audit shadowed donor edits and refresh only view registration; do not build')
     args=p.parse_args()
     if os.geteuid()!=0 or args.jobs<1:
         raise ValueError('Use Linux root for overlayfs and a positive job count')
@@ -135,6 +181,9 @@ def main():
     local=config['local_kernel_build']
     workspace=args.workspace.resolve()
     lower=Path(local['source'].format(workspace=workspace, repo=TOP))
+    if args.review_shadowed_lower:
+        review_shadowed_lower(workspace, lower, args.profile, local['revision'])
+        return
     out=Path(config['profiles'][args.profile]['kernel'].format(workspace=workspace,repo=TOP))
     objects=workspace/'objects'/args.profile
     if objects.is_symlink() or out.is_symlink():
@@ -174,7 +223,7 @@ def main():
         if args.profile == 'm8':
             subprocess.run(['python3', str(TOP/'devices/common/test_dwc3_host_sink.py')],
                            env=dict(os.environ, E5_TEST_KERNEL=str(source)), check=True)
-        if args.profile in ('e5', 't551m', 't512n'):
+        if args.profile in ('e5', 't551m', 't512n', 'lym10k'):
             subprocess.run(['python3', str(TOP/'devices/common/test_musb_host_sink.py')],
                            env=dict(os.environ, MUSB_TEST_KERNEL=str(source)), check=True)
         for test in ('test_fuel_gauge.py','test_fgu_latch.py','test_charger_jeita.py','test_usb_ncm.py'):

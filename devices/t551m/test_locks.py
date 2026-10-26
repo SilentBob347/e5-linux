@@ -23,6 +23,10 @@ class LocksTest(unittest.TestCase):
         locks.CARD = root / 'card';locks.CARD.write_text('0')
         locks.MARKER = root / 'replayed'
         locks.TARGET = None; locks.LOCK_RUN = None
+        # The legacy transaction fixtures below explicitly select 134.
+        # Default/152 behavior is exercised separately by the codec tests.
+        p = patch.object(locks, 'MODES', locks.mode_table('134'))
+        p.start(); self.addCleanup(p.stop)
         self.tm, self.gran, self.endc = [3,134,0], 1, 0
         self.cells = {12: [],16: []}
         self.band = {0:[0,482,0,149,0],3:[549,0,272,0]}
@@ -46,7 +50,7 @@ class LocksTest(unittest.TestCase):
         for key in ('4g', 'sa', 'nsa', '5g4g', '4g-nsa', 'sa-nsa'):
             self.assertEqual(native[key], legacy[key])
         for value in ('', 'unsupported', '0', '153'):
-            self.assertEqual(locks.mode_table(value), legacy)
+            self.assertEqual(locks.mode_table(value), native)
 
     def test_native_auto_preserves_other_sim_and_primary(self):
         with patch.object(locks, 'MODES', locks.mode_table('152')):

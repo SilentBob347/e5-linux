@@ -67,6 +67,7 @@ python3 tools/build-release.py run --label block-mount -- bash openwrt/build-blo
 | M8 | `devices/m8/build-probe.sh`，完整配套由 `devices/m8/package-kernel.py` 生成 |
 | 远航 41S | `devices/yuanhang41s/build-kernel.py` |
 | K1 | `devices/k1/build-kernel.py` |
+| 岭燕 LYM-10K（bring-up） | `devices/lym10k/build-kernel.sh`，`LYM10K_RELEASE=1` |
 
 各构建器原有的 source、objects、baseline、output 参数仍需显式设置，指向
 已经核对过的缓存；`run` 负责调度、日志，不会替你猜基线或重置源码。
@@ -74,7 +75,7 @@ python3 tools/build-release.py run --label block-mount -- bash openwrt/build-blo
 `include/config/kernel.release`。源码打过其他机型补丁时也不能直接改配置硬编。
 目前没有自动、安全切换所有模型源码基线的实现，禁止冒充“一键全量重编”。
 
-对于只留有远航 41S 源码缓存的这台 WSL，E5、T551M、M8、T512N 现在可以使用
+对于只留有远航 41S 源码缓存的这台 WSL，E5、T551M、M8、T512N、LYM-10K 现在可以使用
 `tools/build-profile-kernel.py`。它在现有缓存上建立 overlayfs 只读底层与各机型
 独立的补丁层，不复制整个源码，不修改原有 41S 文件，也不复用 41S 的对象目录。
 底层的版本和状态由 `tools/build-layout.json` 登记，修改过的源码及新增文件在
@@ -91,6 +92,17 @@ sudo python3 tools/build-release.py run --workspace /home/kano/openwrt-build \
 如果底层源码发生改变，或发现未登记的对象、已挂载的视图或错误所有权，命令会停止，
 不会清空缓存强行套用。所有模型任务仍需使用同一把构建锁；不能在视图挂载期间
 运行其他工具修改其底层。41S 与 K1 继续使用原有已准备缓存和上表构建入口。
+如果底层指纹变化但当前全部变动路径均被已有私有文件或 whiteout 完整遮蔽，
+可先通过同一锁入口执行下面的显式核对。它逐路径核对遮蔽关系、版本、所有权、
+私有 Git 索引和未挂载状态，记录旧/新指纹；只更新登记，不改源码/对象，不编译。
+任何未遮蔽的新路径仍会停止。核对通过后再执行正常模型构建，不使用旧编译件冒充新修复。
+
+```sh
+sudo python3 tools/build-release.py run --workspace /home/kano/openwrt-build \
+  --label e5-source-review -- python3 tools/build-profile-kernel.py \
+  --workspace /home/kano/openwrt-build --profile e5 --review-shadowed-lower
+```
+
 `python3 tools/tests/kernel-overlay.py` 在临时 Git 夹具及真实 overlayfs 上验证隔离、
 复挂与底层变更拒绝，不写模型缓存，不连接设备；需要 Linux root 挂载权限。
 

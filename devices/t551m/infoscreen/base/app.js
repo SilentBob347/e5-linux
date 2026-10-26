@@ -201,9 +201,18 @@ function setText(id, s) {
 	if (el && el.textContent !== s) el.textContent = s;
 }
 
+function setStyle(el, property, value) {
+	if (el && el.style[property] !== value) el.style[property] = value;
+}
+
+const renderedHTML = new WeakMap();
 function setHTML(id, html) {
 	const el = $(id);
-	if (el && el.innerHTML !== html) el.innerHTML = html;
+	if (!el || renderedHTML.get(el) === html) return;
+	// Browser serialization and settings icons decorate this HTML. Compare
+	// the render input, otherwise unchanged refreshes rebuild whole lists.
+	if (el.innerHTML !== html) el.innerHTML = html;
+	renderedHTML.set(el, html);
 }
 
 function esc(s) {
@@ -238,7 +247,7 @@ function renderBar(st) {
 
 	const b = st.battery, bat = $('bar-bat');
 	const cap = b.capacity ?? 0;
-	bat.querySelector('b').style.transform = `scaleX(${Math.max(0, Math.min(100, cap)) / 100})`;
+	setStyle(bat.querySelector('b'), 'transform', `scaleX(${Math.max(0, Math.min(100, cap)) / 100})`);
 	bat.classList.toggle('low', cap <= 15 && chargeState(b) != 'charging');
 	bat.classList.toggle('charging', chargeState(b) == 'charging');
 	setText('bar-batpct', b.capacity == null ? '--' : cap + '%');
@@ -319,13 +328,13 @@ function fmtTemp(value) {
 // "used / total · n%" and a bar: green, yellow from 75 %, red from 90 %
 function usage(id, used, total) {
 	const bar = $(id + '-bar');
-	if (used == null || !total) { setText(id, '--'); if (bar) bar.style.width = '0'; return; }
+	if (used == null || !total) { setText(id, '--'); setStyle(bar, 'width', '0%'); return; }
 	const pct = Math.min(100, Math.round(used / total * 100));
 	const [u, uu] = fmtBytes(used), [tt, tu] = fmtBytes(total);
 	setText(id, `${u} ${uu} / ${tt} ${tu} · ${pct}%`);
 	if (bar) {
-		bar.style.width = pct + '%';
-		bar.style.background = pct >= 90 ? 'var(--poor)' : pct >= 75 ? 'var(--fair)' : 'var(--good)';
+		setStyle(bar, 'width', pct + '%');
+		setStyle(bar, 'background', pct >= 90 ? 'var(--poor)' : pct >= 75 ? 'var(--fair)' : 'var(--good)');
 	}
 }
 
@@ -339,8 +348,8 @@ function renderSignal(st) {
 		const g = grade(kind, v);
 		setText('sg-' + kind, v == null ? '--' : `${v.toFixed(1)}${unit} · ${t(g.word)}`);
 		const bar = $('sg-' + kind + '-bar');
-		bar.style.width = g ? Math.round(g.frac * 100) + '%' : '0';
-		bar.style.background = g ? GRADE_COLOR[g.word] : '';
+		setStyle(bar, 'width', g ? Math.round(g.frac * 100) + '%' : '0%');
+		setStyle(bar, 'background', g ? GRADE_COLOR[g.word] : '');
 	}
 	setText('sg-pci', c?.pci == null ? '--' : String(c.pci));
 	setText('sg-arfcn', c?.arfcn == null ? '--' : String(c.arfcn));
@@ -858,7 +867,7 @@ function moveFocus(dir) {
 		pg.scrollBy({ top: dir * 80, behavior: 'smooth' });
 		return;
 	}
-	list[i].focus();
+	list[i].focus({ preventScroll: true });
 	list[i].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
@@ -967,10 +976,10 @@ let keyClick = false;
 for (const ev of ['touchstart', 'touchmove', 'touchend', 'pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click'])
 	window.addEventListener(ev, (e) => {
 		if (touchOff() && !(ev == 'click' && keyClick)) {
-			e.preventDefault();
+			if (!ev.startsWith('touch')) e.preventDefault();
 			e.stopImmediatePropagation();
 		}
-	}, { capture: true, passive: false });
+	}, { capture: true, passive: ev.startsWith('touch') });
 
 function pressKey(el) {
 	keyClick = true;
@@ -987,24 +996,38 @@ function applyTouch() {
 let touch = null;
 document.addEventListener('touchstart', (e) => {
 	if (blank) {
-		e.preventDefault();
 		e.stopPropagation();
 		touch = null;
 		return;
 	}
 	resetIdle();
+	if (e.touches.length !== 1 || e.target.closest('input,textarea,select,[contenteditable="true"]')) {
+		touch = null;
+		return;
+	}
 	const p = e.touches[0];
-	touch = { x: p.clientX, y: p.clientY, t: Date.now() };
-}, { capture: true, passive: false });
+	touch = { x: p.clientX, y: p.clientY, t: Date.now(), axis: null };
+}, { capture: true, passive: true });
+
+document.addEventListener('touchmove', (e) => {
+	if (!touch) return;
+	if (e.touches.length !== 1) { touch = null; return; }
+	const p = e.touches[0], dx = Math.abs(p.clientX - touch.x), dy = Math.abs(p.clientY - touch.y);
+	if (!touch.axis && Math.max(dx, dy) >= 8) touch.axis = dx > dy * 1.5 ? 'x' : 'y';
+	// Once a list starts scrolling, a thumb's sideways arc cannot change page.
+}, { capture: true, passive: true });
 
 document.addEventListener('touchend', (e) => {
 	if (!touch) return;
+	if (e.touches.length) { touch = null; return; }
 	const p = e.changedTouches[0];
 	const dx = p.clientX - touch.x, dy = p.clientY - touch.y;
-	if (Math.abs(dx) > 50 && Math.abs(dx) > 1.5 * Math.abs(dy) && Date.now() - touch.t < 800)
+	if (touch.axis !== 'y' && Math.abs(dx) > 50 && Math.abs(dx) > 1.5 * Math.abs(dy) && Date.now() - touch.t < 800)
 		T551M.step(dx < 0 ? 1 : -1);
 	touch = null;
-}, true);
+	resetIdle();
+}, { capture: true, passive: true });
+document.addEventListener('touchcancel', () => { touch = null; }, { capture: true, passive: true });
 
 document.addEventListener('mousedown', () => { if (!blank) resetIdle(); }, true);
 

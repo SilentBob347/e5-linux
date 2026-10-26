@@ -18,7 +18,7 @@ def check(root):
     assert (root/'etc/e5/device-hostname').read_text().strip() == 'T512N'
     modem = (root/'etc/config/unisoc_modem').read_text()
     assert re.search(r"option auto_work_mode\s+['\"]?(default|134|152)['\"]?", modem)
-    assert re.search(r"option auto_work_mode_default\s+['\"]?134['\"]?", modem)
+    assert re.search(r"option auto_work_mode_default\s+['\"]?152['\"]?", modem)
     assert 'lte_supported_bands' not in modem
     assert not (root/'etc/e5/receiver-output').exists()
     assert not (root/'etc/e5/receiver-volume-ceiling').exists()

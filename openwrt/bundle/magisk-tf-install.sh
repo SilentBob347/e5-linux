@@ -27,6 +27,7 @@ preflight() {
     case "${PROFILE:-}" in
         yuanhang41s) [ "$(getprop ro.product.device)" = P720S11 ] || fail 'unknown 41S board' ;;
         k1) [ "$(getprop ro.product.device)" = ums9157_2h10 ] || fail 'unknown K1 board' ;;
+        lym10k) [ "$(getprop ro.product.device)" = RY5G ] || fail 'unknown LYM-10K board' ;;
     esac
     [ -s "$P/files/ext4-tools.tar" ] || fail 'missing bundled ext4 tools'
     tar -tf "$P/files/ext4-tools.tar" > "$STATE/ext4-tools.list"

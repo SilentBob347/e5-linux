@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: [e5, t551m, m8, t512n]
+        profile: [e5, t551m, m8, t512n, lym10k]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -54,10 +54,16 @@ jobs:
             t512n)
               T512N_RELEASE=1 T512N_KERNEL="$kernel" T512N_BUILD="$objects" T512N_OUT="$output" bash devices/t512n/build-kernel.sh
               ;;
+            lym10k)
+              LYM10K_RELEASE=1 LYM10K_KERNEL="$kernel" LYM10K_BUILD="$objects" LYM10K_OUT="$output" bash devices/lym10k/build-kernel.sh
+              ;;
           esac
           python3 devices/common/test_fuel_gauge.py "$kernel"
           python3 devices/common/test_fgu_latch.py "$kernel"
           python3 devices/common/test_charger_jeita.py "$kernel"
+          if [ "$PROFILE" = lym10k ]; then
+            MUSB_TEST_KERNEL="$kernel" python3 devices/common/test_musb_host_sink.py
+          fi
           if [ "$PROFILE" = e5 ]; then
             python3 devices/e5/test_charger.py "$kernel"
           fi

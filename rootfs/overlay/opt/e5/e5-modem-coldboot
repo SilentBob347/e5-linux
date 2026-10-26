@@ -50,6 +50,12 @@ PROFILES = {
         (2, 183, EDITS),
     '317eb996768a1978aa6b983a0d856cee47458b3bc72fa17ff88bc97f9df52109':
         (1, 40, T551M_EDITS),
+    # LYM-10K-V32, stock 32-bit loader: identical predicate/call sites.
+    # VA 0xa020 opens /dev/sctl_pm (literal 0x210d); main saves that
+    # result at file 0x96a2, and calls load_modem_img(0x86b4) at VA
+    # 0xa6c2. Keep PM untouched when starting NR/CH after charge-only boot.
+    '94b1a0bc5df7726852dfbec16a2c8ea1cb58b22a172951869e6c74ed969c1c0a':
+        (1, 40, T551M_EDITS),
     '43a3bc8c4730b87431d4fc8d90a3652b2458ef8bc9f59772685d4016cc7819a3':
         (2, 183, K1_EDITS),
     'e76433bb853bfc5557e6397ab568666cabe8acf0ef12056783b822564df0dd75':

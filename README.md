@@ -12,6 +12,10 @@ T551M OpenWrt bring-up has a separate [device profile](devices/t551m/README.md),
 including its charger, GPIO backlight, 32-bit vendor runtime and isolated NV storage.
 Use that profile's build and trial procedure for T551M.
 
+LYM-10K has a separate [bring-up profile](devices/lym10k/README.md), with a
+source-built Hynitron touchscreen driver and its own factory charging policy.
+Hardware validation is pending; this profile is not a verified release.
+
 angelcare K1 has a separate [bring-up profile](devices/k1/README.md), sharing
 the M8 UMS9620 platform with K1's own panel and battery policy. Hardware boot
 and peripheral validation are pending; this profile is not a release image.

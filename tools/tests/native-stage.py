@@ -20,7 +20,7 @@ class Staging(unittest.TestCase):
             return REAL_RUN(path,*args,**kwargs)
         with patch.dict(UI['stage'].__globals__,PACKAGES={}):
             with patch('runpy.run_path',side_effect=run):
-                for profile in ('e5','t551m','m8','t512n','yuanhang41s','k1'):
+                for profile in ('e5','t551m','m8','t512n','yuanhang41s','k1','lym10k'):
                     with self.subTest(profile=profile),tempfile.TemporaryDirectory() as td:
                         root=Path(td);config=root/'etc/config/unisoc_modem';config.parent.mkdir(parents=True)
                         config.write_text("config core 'main'\n option services_cpus 'all'\n option fixture_user_setting 'keep'\n")

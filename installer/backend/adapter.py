@@ -283,6 +283,8 @@ class Adapter:
                 raise ValueError('Wrong K1 board / K1 硬件标识不匹配')
             if profile['profile']=='yuanhang41s' and properties['ro.product.device']!='P720S11':
                 raise ValueError('Wrong 41S board / 远航 41S 硬件标识不匹配')
+            if profile['profile']=='lym10k' and properties['ro.product.device']!='RY5G':
+                raise ValueError('Wrong LYM-10K board / LYM-10K 硬件标识不匹配')
             if device['slot'] not in ('_a', '_b'):
                 raise ValueError('Android slot unavailable / 无法识别 Android 槽位')
             self.legacy.ANDROID_SLOT = device['slot'][1:]

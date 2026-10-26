@@ -1,0 +1,13 @@
+{
+  "profile": "lym10k",
+  "android_models": ["LYM-10K"],
+  "android_device": "RY5G",
+  "platform": "ums9621",
+  "family": "ums9621-handheld",
+  "hostname": "LYM-10K",
+  "display": [320, 480],
+  "stock_build": "LYM-10K-V32",
+  "stock_modem_control_sha256": "94b1a0bc5df7726852dfbec16a2c8ea1cb58b22a172951869e6c74ed969c1c0a",
+  "stock_touch_sha256": "98ac6b11ae7b152236f68aadedcfcbf98afe8d96b992eea9ec23be6662a00a18",
+  "stock_charger_sha256": "1d5261d8a8dcc21e05b7e06a45d7a2c81059bb73889a95a32aaf73a66fdfd24f"
+}

@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import sys
+import struct
 import subprocess
 import time
 
@@ -29,7 +30,34 @@ VERIFIED_UMS9620_VOLTAGE_FIRMWARE = frozenset({
     # payload byte-for-byte; devices/k1/CPU-POWER.zh-CN.md.
     'efc2e6cf3a83a1dbbedecbea12673a7320520632b7b3f59c9072276f9b24d5eb',
 })
-VOLTAGE_CAPABILITY_CACHE = 'voltage-supported-v6'
+# LYM's factory export is one complete signed DHTB image, not a padded
+# partition dump. Identify the entire image (header + code/data + certificate),
+# bounded by the factory header. Never accept just a code fragment or a model
+# name. Trailing partition padding is not part of this executable image.
+VERIFIED_SIZED_VOLTAGE_FIRMWARE = {
+    'lym10k': {
+        'compatible': 'sprd,ums9621',
+        'size': 0x26628,
+        'payload_size': 0x25f90,
+        'sha256': '25447f40532d7dcb2b86b343ae9cfc8fb14f8384011089d68d268f88c31e04c6',
+    },
+}
+VOLTAGE_CAPABILITY_CACHE = 'voltage-supported-v7'
+
+
+def sized_voltage_firmware(data, expected):
+    """Recognize a complete audited DHTB image inside its source partition."""
+    size = expected['size']
+    if not 512 <= size <= len(data) <= 1024 * 1024:
+        return None
+    if data[:8] != b'DHTB\x01\x00\x00\x00':
+        return None
+    if (struct.unpack_from('<I', data, 0x30)[0] != expected['payload_size'] or
+            struct.unpack_from('<I', data, 0x50)[0] != size or
+            not 0 < expected['payload_size'] <= size - 512):
+        return None
+    digest = hashlib.sha256(data[:size]).hexdigest()
+    return digest if digest == expected['sha256'] else None
 
 
 def read(path, default=''):
@@ -86,6 +114,11 @@ class Control:
         compatibles = compatible.split('\0')
         verified = (VERIFIED_VOLTAGE_FIRMWARE if 'sprd,ums9621' in compatibles else
                     VERIFIED_UMS9620_VOLTAGE_FIRMWARE if 'sprd,ums9620' in compatibles else ())
+        sized = VERIFIED_SIZED_VOLTAGE_FIRMWARE.get(read(self.root / 'etc/e5/device-profile'))
+        if sized and sized['compatible'] not in compatibles:
+            sized = None
+        if sized:
+            verified = {*verified, sized['sha256']}
         if verified:
             hashes = {}
             for entry in (self.root / 'sys/class/block').glob('*/uevent'):
@@ -96,7 +129,8 @@ class Control:
                 try:
                     with (self.root / 'dev' / entry.parent.name).open('rb') as stream:
                         data = stream.read(1024 * 1024 + 1)
-                    hashes[name] = hashlib.sha256(data).hexdigest()
+                    identity = sized_voltage_firmware(data, sized) if sized else None
+                    hashes[name] = identity or hashlib.sha256(data).hexdigest()
                 except OSError:
                     pass
             supported = (len(hashes) == 2 and

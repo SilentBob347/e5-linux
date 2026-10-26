@@ -23,6 +23,7 @@ if [ -z "${E5_IN_CONTAINER:-}" ]; then
         -e E5_OUTPUT_UID="$(id -u)" -e E5_OUTPUT_GID="$(id -g)" \
         -v "$K":/src/linux -v e5-mainline-out:/out -v "$HERE":/work \
         -v "$HERE/../devices/common":/policy:ro \
+        -v "$HERE/../devices/e5":/e5-policy:ro \
         e5-mainline-build bash /work/build.sh "$@"
 fi
 
@@ -30,6 +31,7 @@ fi
 [ -n "${KBUILD_BUILD_TIMESTAMP:-}" ] || unset KBUILD_BUILD_TIMESTAMP
 cd /src/linux
 python3 /policy/display.py .
+python3 /e5-policy/panel-dither.py .
 python3 /policy/power.py .
 python3 /policy/charger-capabilities.py .
 python3 /policy/emmc.py .

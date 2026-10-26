@@ -23,7 +23,7 @@ import zipfile
 TOP = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True
 OWNER = 'e5-linux-build-release-v1'
-PROFILES = ('e5', 't551m', 'm8', 't512n', 'yuanhang41s', 'k1')
+PROFILES = ('e5', 't551m', 'm8', 't512n', 'yuanhang41s', 'k1', 'lym10k')
 COMMON = ('base', 'defaults', 'busybox', 'block_apk', 'wifi_apks')
 
 

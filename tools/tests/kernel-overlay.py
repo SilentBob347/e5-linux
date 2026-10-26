@@ -48,4 +48,19 @@ with tempfile.TemporaryDirectory(prefix='e5-kernel-overlay-') as temp:
             raise AssertionError('changed lower was accepted')
     except ValueError as error:
         assert 'Lower source changed' in str(error)
+    # Existing private files/whiteouts fully hide these donor changes. An
+    # explicit audit may refresh registration without changing board sources.
+    api['review_shadowed_lower'](workspace,lower,'e5',revision)
+    with api['source_view'](workspace,lower,'e5',revision) as view:
+        assert (view/'tracked.c').read_text()=='e5 patch\n'
+        assert not (view/'added.c').exists()
+    marker=workspace/'kernel-views/e5/owner.json'
+    before_marker=marker.read_bytes()
+    (lower/'new-unshadowed.c').write_text('new donor input\n')
+    try:
+        api['review_shadowed_lower'](workspace,lower,'e5',revision)
+        raise AssertionError('unshadowed change was accepted')
+    except ValueError as error:
+        assert 'Unshadowed donor change' in str(error)
+    assert marker.read_bytes()==before_marker
 print('PASS: pristine view, private patches/indexes, unchanged donor, remount and changed-lower rejection')

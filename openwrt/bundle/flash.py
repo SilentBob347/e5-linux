@@ -207,16 +207,18 @@ def package_profile():
         return None  # Legacy E5 packages did not carry a profile manifest.
     with open(path, encoding='utf-8') as stream:
         value = json.load(stream)
-    if value.get('profile') not in ('e5', 't551m', 'm8', 't512n', 'yuanhang41s', 'k1') or not value.get('android_models'):
+    if value.get('profile') not in ('e5', 't551m', 'm8', 't512n', 'yuanhang41s', 'k1', 'lym10k') or not value.get('android_models'):
         die('invalid package device profile')
     if value['profile'] == 'k1' and value['android_models'] != ['angelcare K1']:
         die('K1 package model identity differs')
+    if value['profile'] == 'lym10k' and value['android_models'] != ['LYM-10K']:
+        die('LYM-10K package model identity differs')
     return value
 
 
 def default_hotspot_name():
     profile = package_profile()
-    model = {'e5': 'E5', 't551m': 'T551M', 'm8': 'M8', 't512n': 'T512N', 'yuanhang41s': 'Yuanhang41S', 'k1': 'K1'}[
+    model = {'e5': 'E5', 't551m': 'T551M', 'm8': 'M8', 't512n': 'T512N', 'yuanhang41s': 'Yuanhang41S', 'k1': 'K1', 'lym10k': 'LYM-10K'}[
         profile['profile'] if profile else 'e5']
     return model + '-OpenWrt'
 
@@ -541,6 +543,8 @@ def android_checks():
             die('Wrong K1 board; expected ums9157_2h10. Nothing was written.')
         if profile['profile'] == 'yuanhang41s' and sh('getprop ro.product.device').strip() != 'P720S11':
             die('Wrong 41S board; expected P720S11. Nothing was written.')
+        if profile['profile'] == 'lym10k' and sh('getprop ro.product.device').strip() != 'RY5G':
+            die('Wrong LYM-10K board; expected RY5G. Nothing was written.')
     suffix = sh('getprop ro.boot.slot_suffix').strip()
     if suffix not in ('_a', '_b'):
         die('Android slot is unavailable; nothing written')

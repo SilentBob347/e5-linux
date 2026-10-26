@@ -309,7 +309,7 @@ def patch_vendor_startup(root):
 
 
 def patch_root(root, profile='t551m'):
-    if profile not in ('t551m', 'e5', 'm8', 't512n', 'yuanhang41s', 'k1'):
+    if profile not in ('t551m', 'e5', 'm8', 't512n', 'yuanhang41s', 'k1', 'lym10k'):
         raise ValueError('Unknown device profile: ' + profile)
     patch_vendor_startup(root)
     # Also install through the on-device update hook, after package defaults.
@@ -356,7 +356,7 @@ def patch_root(root, profile='t551m'):
         additions = ''
         # Board-owned default and user override are separate. Never rewrite an
         # explicit 134/152 choice when assembling or updating a system.
-        default = '152' if profile == 't551m' else '134'
+        default = '152'
         if re.search(r'^\s*option auto_work_mode_default\s+', text, re.M):
             text = re.sub(r'^(\s*option auto_work_mode_default)\s+.*$',
                           lambda m: m[1] + " '" + default + "'", text, flags=re.M)
@@ -533,6 +533,6 @@ def patch_root(root, profile='t551m'):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, required=True)
-    parser.add_argument('--profile', choices=('t551m', 'e5', 'm8', 't512n', 'yuanhang41s', 'k1'), default='t551m')
+    parser.add_argument('--profile', choices=('t551m', 'e5', 'm8', 't512n', 'yuanhang41s', 'k1', 'lym10k'), default='t551m')
     args = parser.parse_args()
     patch_root(args.root, args.profile)

@@ -2,6 +2,8 @@
 import importlib.machinery
 import importlib.util
 import json
+import hashlib
+import struct
 from pathlib import Path
 import tempfile
 import unittest
@@ -275,6 +277,72 @@ class VoltageFirmwareTest(unittest.TestCase):
             self.assertEqual(sha.call_count, 2)
             self.assertTrue(all(len(call.args[0]) == 1024 * 1024 for call in sha.call_args_list))
             return result
+
+    def lym_fixture(self):
+        payload, certificate = b'fixture executable tables' * 32, b'fixture certificate'
+        image = bytearray(512 + len(payload) + len(certificate))
+        image[:8] = b'DHTB\x01\x00\x00\x00'
+        struct.pack_into('<I', image, 0x30, len(payload))
+        struct.pack_into('<I', image, 0x50, len(image))
+        image[8:40] = hashlib.sha256(payload).digest()
+        image[512:] = payload + certificate
+        identity = dict(compatible='sprd,ums9621', size=len(image),
+                        payload_size=len(payload), sha256=hashlib.sha256(image).hexdigest())
+        profile = self.root / 'etc/e5/device-profile'
+        profile.parent.mkdir(parents=True)
+        profile.write_text('lym10k\n')
+        return bytes(image), identity
+
+    def lym_pair(self, a, b):
+        for dev, data in [('mmcblk0p6', a), ('mmcblk0p7', b)]:
+            (self.root / 'dev' / dev).write_bytes(data)
+        (self.control.runtime / module.VOLTAGE_CAPABILITY_CACHE).unlink(missing_ok=True)
+
+    def test_lym_complete_signed_image_accepts_only_unused_tail_differences(self):
+        image, identity = self.lym_fixture()
+        with patch.dict(module.VERIFIED_SIZED_VOLTAGE_FIRMWARE, lym10k=identity):
+            for a, b in ((image, image),
+                         (image + bytes(1024 * 1024-len(image)),
+                          image + b'\xff' * (1024 * 1024-len(image)))):
+                self.lym_pair(a, b)
+                self.assertTrue(self.control.voltage_supported())
+
+    def test_lym_header_payload_certificate_and_truncation_are_not_ignored(self):
+        image, identity = self.lym_fixture()
+        changed = []
+        for offset in (0, 4, 0x30, 0x50, 512, len(image)-1):
+            data = bytearray(image)
+            data[offset] ^= 1
+            changed.append(bytes(data))
+        changed += [image[:-1], image + bytes(1024 * 1024 + 1 - len(image))]
+        with patch.dict(module.VERIFIED_SIZED_VOLTAGE_FIRMWARE, lym10k=identity):
+            for bad in changed:
+                with self.subTest(length=len(bad)):
+                    self.lym_pair(image, bad)
+                    self.assertFalse(self.control.voltage_supported())
+
+    def test_lym_known_image_does_not_enable_other_profile_or_soc(self):
+        image, identity = self.lym_fixture()
+        with patch.dict(module.VERIFIED_SIZED_VOLTAGE_FIRMWARE, lym10k=identity):
+            self.lym_pair(image, image)
+            (self.root/'etc/e5/device-profile').write_text('t551m\n')
+            self.assertFalse(self.control.voltage_supported())
+            for compatible in (b'sprd,ums9620\0', b'other,sprd,ums9621\0'):
+                self.lym_pair(image, image)
+                (self.root/'etc/e5/device-profile').write_text('lym10k\n')
+                self.compatible.write_bytes(compatible)
+                self.assertFalse(self.control.voltage_supported())
+
+    def test_lym_missing_slot_and_old_negative_cache(self):
+        image, identity = self.lym_fixture()
+        self.lym_pair(image, image)
+        self.control.runtime.mkdir(parents=True)
+        (self.control.runtime/'voltage-supported-v6').write_text('0')
+        with patch.dict(module.VERIFIED_SIZED_VOLTAGE_FIRMWARE, lym10k=identity):
+            self.assertTrue(self.control.voltage_supported())
+            (self.control.runtime/module.VOLTAGE_CAPABILITY_CACHE).unlink()
+            (self.root/'dev/mmcblk0p7').unlink()
+            self.assertFalse(self.control.voltage_supported())
 
     def test_each_verified_firmware_pair_is_supported(self):
         for digest in module.VERIFIED_VOLTAGE_FIRMWARE:

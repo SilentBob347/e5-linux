@@ -11,7 +11,7 @@ import shutil
 import zipfile
 
 HERE = Path(__file__).resolve().parent
-MODELS = {'e5': 'E5', 't551m': 'T551M', 'm8': 'VIPME M8', 't512n': 'T512N', 'yuanhang41s':'ZTE 7546N', 'k1':'angelcare K1'}
+MODELS = {'e5': 'E5', 't551m': 'T551M', 'm8': 'VIPME M8', 't512n': 'T512N', 'yuanhang41s':'ZTE 7546N', 'k1':'angelcare K1', 'lym10k': 'LYM-10K'}
 
 
 def digest(path):
@@ -89,7 +89,7 @@ def finalize(package, profile, bootctl):
         'description=ERASES THE SELECTED TF PARTITION (or unpartitioned card) and deploys OpenWrt. Android userdata is preserved. Reboot manually.\n',
         encoding='utf-8', newline='\n')
     values = {'PROFILE': profile, 'ANDROID_MODEL': MODELS[profile],
-              'DEFAULT_SSID': {'e5': 'E5', 't551m': 'T551M', 'm8': 'M8', 't512n': 'T512N', 'yuanhang41s':'Yuanhang41S', 'k1':'K1'}[profile] + '-OpenWrt',
+              'DEFAULT_SSID': {'e5': 'E5', 't551m': 'T551M', 'm8': 'M8', 't512n': 'T512N', 'yuanhang41s':'Yuanhang41S', 'k1':'K1', 'lym10k':'LYM-10K'}[profile] + '-OpenWrt',
               'SLOT_ROLES_VERSION':str(boot.get('slot_roles_version',0)),
               'RAW_BYTES': str(size), 'RAW_SHA256': raw_hash.hexdigest(),
               'BOOT_BYTES': str((files / 'boot.img').stat().st_size), 'BOOT_SHA256': boot['sha256']}

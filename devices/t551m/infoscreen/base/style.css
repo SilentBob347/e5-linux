@@ -97,6 +97,10 @@ html, body {
 .page.is-current { visibility: visible; pointer-events: auto; z-index: 1; }
 .page.is-entering { animation: page-enter .24s cubic-bezier(.22,.75,.2,1) both; }
 .page.is-entering,.page.is-outgoing { will-change: transform; }
+.page:not(.is-current):not(.is-outgoing) { display: none; }
+/* Keep vertical drag and inertia on WebKit's native scrolling path. */
+.page { touch-action: pan-y; overscroll-behavior-y: contain; }
+body.blank, body.notouch { touch-action: none; }
 @keyframes page-enter {
 	from { transform: translate3d(calc(var(--page-direction) * 100%),0,0); }
 	to { transform: translate3d(0,0,0); }

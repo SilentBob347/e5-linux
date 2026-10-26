@@ -192,6 +192,7 @@ def main():
         assert page.evaluate('T551M.isLocked()')
         # Mid-drag follows the finger; cancellation springs back.
         touch('touchStart',[(160,425)]); touch('touchMove',[(160,355)])
+        page.wait_for_function("document.getElementById('mobile-lockscreen').style.transform.includes('-70px')")
         transform=page.locator('#mobile-lockscreen').evaluate('(e)=>getComputedStyle(e).transform')
         assert '-70' in transform,transform
         page.screenshot(path=str(args.screenshots/'screen-lock-drag.png'))
