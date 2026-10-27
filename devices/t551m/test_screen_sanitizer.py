@@ -5,7 +5,7 @@ import runpy
 import subprocess
 import tempfile
 
-HERE=Path(__file__).resolve().parent/'infoscreen/native'
+HERE=Path(__file__).resolve().parents[1]/'common/infoscreen/native'
 TOP=HERE.parents[3]
 support=runpy.run_path(str(HERE/'test-support.py'))
 with tempfile.TemporaryDirectory() as tmp:

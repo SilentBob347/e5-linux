@@ -1,4 +1,4 @@
-"""Reproducible T551M adaptation of infoscreen 1.6.7 (see LICENSE/README)."""
+"""Reproducible shared handheld adaptation of infoscreen 1.6.7 (see LICENSE/README)."""
 from pathlib import Path
 import json
 import re

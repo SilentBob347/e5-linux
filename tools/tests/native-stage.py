@@ -15,7 +15,7 @@ REAL_RUN=runpy.run_path
 class Staging(unittest.TestCase):
     def test_all_profiles_receive_matching_runtime_and_keep_user_config(self):
         def run(path,*args,**kwargs):
-            if Path(path)==TOP/'devices/t551m/infoscreen/stage.py':
+            if Path(path)==TOP/'devices/common/infoscreen/stage.py':
                 return {'stage':lambda root:None}  # screen is outside this runtime change
             return REAL_RUN(path,*args,**kwargs)
         with patch.dict(UI['stage'].__globals__,PACKAGES={}):

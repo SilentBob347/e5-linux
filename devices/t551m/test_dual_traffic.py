@@ -115,7 +115,7 @@ with tempfile.TemporaryDirectory(prefix='dual-traffic-') as directory:
         assert rpc('get',{'slot':'0'})['status']['today']=={'rx':100,'tx':20}
         assert rpc('get',{'slot':'1'})['status']['today']=={'rx':310,'tx':42}
     finally:proc.terminate();proc.wait(timeout=5)
-    api=(Path(__file__).parent/'infoscreen/base/api.uc').read_text()
+    api=(Path(__file__).resolve().parents[1]/'common/infoscreen/base/api.uc').read_text()
     def function(name):
         start=api.index('function '+name+'(')
         return api[start:api.index('\n}',start)+2]

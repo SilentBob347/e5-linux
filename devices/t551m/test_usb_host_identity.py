@@ -9,7 +9,7 @@ import tempfile
 
 
 def main():
-    api = (Path(__file__).with_name('infoscreen') / 'base/api.uc').read_text()
+    api = ((Path(__file__).resolve().parents[1] / 'common/infoscreen') / 'base/api.uc').read_text()
     fragment = api[api.index('let usbHostMacs = null;'):api.index('function clients() {')]
     with tempfile.TemporaryDirectory(prefix='usb-identity-') as directory:
         root = Path(directory)

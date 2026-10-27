@@ -13,6 +13,7 @@ Windows 和固件在本机编译；Apple Silicon 安装器可以使用 GitHub ma
 - 全部机型：`e5 t551m m8 t512n yuanhang41s k1`。
 - 新增 bring-up 机型：`lym10k`，独立触摸驱动及 ARM32 基带环境；见 `devices/lym10k/README.md`。
 - 输入路径由 `tools/build-layout.json` 登记。缺输入先报告，不随意换旧包。
+- 共用屏幕源码统一在 `devices/common/infoscreen/`，原生构建入口仍是 `devices/common/build-screen-native.py`；不要从历史 T551M 目录或旧发布包取屏幕源码。
 - 正式包：`out/releases/<task>/`；日志：`out/build-logs/<task>/`。
 - 不复制整份源码/rootfs，不导出 Docker volume，不迁往 C 盘，不删除缓存或旧包。
 - U30 Pro 是另一个仓库；不能把它混入本次发布。

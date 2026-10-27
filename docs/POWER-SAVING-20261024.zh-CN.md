@@ -97,7 +97,7 @@ regulator_ignore_unused。后续应结合各机型原厂驱动和设备树验证
 ## 重跑
 
 浏览器测试和现有屏幕回归使用相同的 --fixtures FILE --webroot DIR 参数。
-webroot 应由 devices/t551m/infoscreen/stage.py 的 sources() 或 stage() 生成，
+webroot 应由 devices/common/infoscreen/stage.py 的 sources() 或 stage() 生成，
 避免拿旧的 app.js 测试新源代码。
 
 ```sh

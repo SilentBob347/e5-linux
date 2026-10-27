@@ -134,7 +134,7 @@
 - 后台页迟到响应不覆盖当前页，等待状态随页面生命周期管理；息屏、锁屏及全屏来电暂停不可见动画。
 - 流量页 select 使用主题底色、圆角、箭头和焦点色，跟随壁纸透明度；展开项采用实色主题底色，大字号/中英文自动换行。
 
-入口：[屏幕说明](../devices/t551m/infoscreen/README.md)、[移动界面](../devices/t551m/infoscreen/mobile.js)、[样式](../devices/t551m/infoscreen/mobile.css)、[标题栏修复记录](FIXLOG-2026-10-10-screen-toolbar.zh-CN.md)。
+入口：[屏幕说明](../devices/common/infoscreen/README.md)、[移动界面](../devices/common/infoscreen/mobile.js)、[样式](../devices/common/infoscreen/mobile.css)、[标题栏修复记录](FIXLOG-2026-10-10-screen-toolbar.zh-CN.md)。
 
 ## 8. 壁纸、明暗模式、锁屏与触控
 
@@ -205,7 +205,7 @@ LTE 模式/小区锁定与重启回放已有历史实机记录；5G SA/NSA 等�
 - 保持每 10 秒采样、每 60 秒保存，清空/套餐变更立即落盘；比特/字节网速设置不改变累计流量单位。
 
 与此同期还统一热点 AP/radio 开关、短信本地可见性、AT 分卡历史、锁定和回放、USB 自动配置、默认系统及设置错误反馈。
-具体交互和数据保留验证见[功能同步复查](../devices/t551m/infoscreen/README.md#功能同步复查2026-10-10)。
+具体交互和数据保留验证见[功能同步复查](../devices/common/infoscreen/README.md#功能同步复查2026-10-10)。
 
 ## 12. 短信、转发与通话界面
 
@@ -491,45 +491,45 @@ Wi-Fi 补丁也依赖匹配的 SDIO 驱动代码和内核配置；**代码可复
 
 | 动作 | 文件 | 新增/删除行 | 涉及提交 |
 | --- | --- | ---: | --- |
-| 新增 | [devices/t551m/infoscreen/LICENSE](../devices/t551m/infoscreen/LICENSE) | +21 / −0 | C01 |
-| 新增 | [devices/t551m/infoscreen/README.md](../devices/t551m/infoscreen/README.md) | +391 / −0 | C01, C02, C03, C04, C05, C06, C07, C08 |
-| 新增 | [devices/t551m/infoscreen/base/api.uc](../devices/t551m/infoscreen/base/api.uc) | +1625 / −0 | C01, C03, C05 |
-| 新增 | [devices/t551m/infoscreen/base/app.js](../devices/t551m/infoscreen/base/app.js) | +2076 / −0 | C01, C03, C04, C05 |
-| 新增 | [devices/t551m/infoscreen/base/index.html](../devices/t551m/infoscreen/base/index.html) | +267 / −0 | C01, C03, C05, C06 |
-| 新增 | [devices/t551m/infoscreen/base/luci-settings.js](../devices/t551m/infoscreen/base/luci-settings.js) | +52 / −0 | C01, C05 |
-| 新增 | [devices/t551m/infoscreen/base/plugin](../devices/t551m/infoscreen/base/plugin) | +171 / −0 | C05 |
-| 新增 | [devices/t551m/infoscreen/base/sdk.js](../devices/t551m/infoscreen/base/sdk.js) | +181 / −0 | C02 |
-| 新增 | [devices/t551m/infoscreen/base/service](../devices/t551m/infoscreen/base/service) | +69 / −0 | C05 |
-| 新增 | [devices/t551m/infoscreen/base/settings.uc](../devices/t551m/infoscreen/base/settings.uc) | +587 / −0 | C01, C03, C05 |
-| 新增 | [devices/t551m/infoscreen/base/style.css](../devices/t551m/infoscreen/base/style.css) | +326 / −0 | C01 |
-| 新增 | [devices/t551m/infoscreen/base/update](../devices/t551m/infoscreen/base/update) | +127 / −0 | C05 |
-| 新增 | [devices/t551m/infoscreen/base/updates.uc](../devices/t551m/infoscreen/base/updates.uc) | +117 / −0 | C05 |
-| 新增 | [devices/t551m/infoscreen/calls.js](../devices/t551m/infoscreen/calls.js) | +55 / −0 | C02 |
-| 新增 | [devices/t551m/infoscreen/cpu-settings.uc](../devices/t551m/infoscreen/cpu-settings.uc) | +86 / −0 | C05 |
-| 新增 | [devices/t551m/infoscreen/details-radio.py](../devices/t551m/infoscreen/details-radio.py) | +91 / −0 | C01, C05 |
-| 新增 | [devices/t551m/infoscreen/details.uc](../devices/t551m/infoscreen/details.uc) | +18 / −0 | C01, C05 |
-| 新增 | [devices/t551m/infoscreen/mobile-phone.css](../devices/t551m/infoscreen/mobile-phone.css) | +65 / −0 | C01, C02 |
-| 新增 | [devices/t551m/infoscreen/mobile.css](../devices/t551m/infoscreen/mobile.css) | +376 / −0 | C01, C02, C03, C04, C05, C06 |
-| 新增 | [devices/t551m/infoscreen/mobile.js](../devices/t551m/infoscreen/mobile.js) | +629 / −0 | C01, C02, C03, C04, C05, C07 |
-| 新增 | [devices/t551m/infoscreen/navigation.js](../devices/t551m/infoscreen/navigation.js) | +20 / −0 | C01 |
-| 新增 | [devices/t551m/infoscreen/phone/LICENSE](../devices/t551m/infoscreen/phone/LICENSE) | +21 / −0 | C02 |
-| 新增 | [devices/t551m/infoscreen/phone/UPSTREAM.json](../devices/t551m/infoscreen/phone/UPSTREAM.json) | +13 / −0 | C02 |
-| 新增 | [devices/t551m/infoscreen/phone/backend.uc](../devices/t551m/infoscreen/phone/backend.uc) | +107 / −0 | C02, C03 |
-| 新增 | [devices/t551m/infoscreen/phone/index.html](../devices/t551m/infoscreen/phone/index.html) | +75 / −0 | C02, C03 |
-| 新增 | [devices/t551m/infoscreen/phone/manifest.json](../devices/t551m/infoscreen/phone/manifest.json) | +75 / −0 | C02, C05 |
-| 新增 | [devices/t551m/infoscreen/phone/phone.css](../devices/t551m/infoscreen/phone/phone.css) | +90 / −0 | C02, C03 |
-| 新增 | [devices/t551m/infoscreen/phone/phone.js](../devices/t551m/infoscreen/phone/phone.js) | +316 / −0 | C02, C03 |
-| 新增 | [devices/t551m/infoscreen/phone/voice.uc](../devices/t551m/infoscreen/phone/voice.uc) | +79 / −0 | C02 |
-| 新增 | [devices/t551m/infoscreen/power-menu.js](../devices/t551m/infoscreen/power-menu.js) | +116 / −0 | C01 |
-| 新增 | [devices/t551m/infoscreen/power-service](../devices/t551m/infoscreen/power-service) | +12 / −0 | C01 |
-| 新增 | [devices/t551m/infoscreen/screen-power.py](../devices/t551m/infoscreen/screen-power.py) | +105 / −0 | C01, C03 |
-| 新增 | [devices/t551m/infoscreen/sim-service](../devices/t551m/infoscreen/sim-service) | +12 / −0 | C03 |
-| 新增 | [devices/t551m/infoscreen/sim-status.py](../devices/t551m/infoscreen/sim-status.py) | +162 / −0 | C03, C08 |
-| 新增 | [devices/t551m/infoscreen/sims.uc](../devices/t551m/infoscreen/sims.uc) | +45 / −0 | C03 |
-| 新增 | [devices/t551m/infoscreen/stage.py](../devices/t551m/infoscreen/stage.py) | +339 / −0 | C01, C02, C03, C04, C05 |
-| 新增 | [devices/t551m/infoscreen/ui-settings.uc](../devices/t551m/infoscreen/ui-settings.uc) | +41 / −0 | C01 |
-| 新增 | [devices/t551m/infoscreen/wallpaper-rpc.py](../devices/t551m/infoscreen/wallpaper-rpc.py) | +199 / −0 | C01 |
-| 新增 | [devices/t551m/infoscreen/wallpapers.js](../devices/t551m/infoscreen/wallpapers.js) | +108 / −0 | C01 |
+| 新增 | [devices/t551m/infoscreen/LICENSE](../devices/common/infoscreen/LICENSE) | +21 / −0 | C01 |
+| 新增 | [devices/t551m/infoscreen/README.md](../devices/common/infoscreen/README.md) | +391 / −0 | C01, C02, C03, C04, C05, C06, C07, C08 |
+| 新增 | [devices/t551m/infoscreen/base/api.uc](../devices/common/infoscreen/base/api.uc) | +1625 / −0 | C01, C03, C05 |
+| 新增 | [devices/t551m/infoscreen/base/app.js](../devices/common/infoscreen/base/app.js) | +2076 / −0 | C01, C03, C04, C05 |
+| 新增 | [devices/t551m/infoscreen/base/index.html](../devices/common/infoscreen/base/index.html) | +267 / −0 | C01, C03, C05, C06 |
+| 新增 | [devices/t551m/infoscreen/base/luci-settings.js](../devices/common/infoscreen/base/luci-settings.js) | +52 / −0 | C01, C05 |
+| 新增 | [devices/t551m/infoscreen/base/plugin](../devices/common/infoscreen/base/plugin) | +171 / −0 | C05 |
+| 新增 | [devices/t551m/infoscreen/base/sdk.js](../devices/common/infoscreen/base/sdk.js) | +181 / −0 | C02 |
+| 新增 | [devices/t551m/infoscreen/base/service](../devices/common/infoscreen/base/service) | +69 / −0 | C05 |
+| 新增 | [devices/t551m/infoscreen/base/settings.uc](../devices/common/infoscreen/base/settings.uc) | +587 / −0 | C01, C03, C05 |
+| 新增 | [devices/t551m/infoscreen/base/style.css](../devices/common/infoscreen/base/style.css) | +326 / −0 | C01 |
+| 新增 | [devices/t551m/infoscreen/base/update](../devices/common/infoscreen/base/update) | +127 / −0 | C05 |
+| 新增 | [devices/t551m/infoscreen/base/updates.uc](../devices/common/infoscreen/base/updates.uc) | +117 / −0 | C05 |
+| 新增 | [devices/t551m/infoscreen/calls.js](../devices/common/infoscreen/calls.js) | +55 / −0 | C02 |
+| 新增 | [devices/t551m/infoscreen/cpu-settings.uc](../devices/common/infoscreen/cpu-settings.uc) | +86 / −0 | C05 |
+| 新增 | [devices/t551m/infoscreen/details-radio.py](../devices/common/infoscreen/details-radio.py) | +91 / −0 | C01, C05 |
+| 新增 | [devices/t551m/infoscreen/details.uc](../devices/common/infoscreen/details.uc) | +18 / −0 | C01, C05 |
+| 新增 | [devices/t551m/infoscreen/mobile-phone.css](../devices/common/infoscreen/mobile-phone.css) | +65 / −0 | C01, C02 |
+| 新增 | [devices/t551m/infoscreen/mobile.css](../devices/common/infoscreen/mobile.css) | +376 / −0 | C01, C02, C03, C04, C05, C06 |
+| 新增 | [devices/t551m/infoscreen/mobile.js](../devices/common/infoscreen/mobile.js) | +629 / −0 | C01, C02, C03, C04, C05, C07 |
+| 新增 | [devices/t551m/infoscreen/navigation.js](../devices/common/infoscreen/navigation.js) | +20 / −0 | C01 |
+| 新增 | [devices/t551m/infoscreen/phone/LICENSE](../devices/common/infoscreen/phone/LICENSE) | +21 / −0 | C02 |
+| 新增 | [devices/t551m/infoscreen/phone/UPSTREAM.json](../devices/common/infoscreen/phone/UPSTREAM.json) | +13 / −0 | C02 |
+| 新增 | [devices/t551m/infoscreen/phone/backend.uc](../devices/common/infoscreen/phone/backend.uc) | +107 / −0 | C02, C03 |
+| 新增 | [devices/t551m/infoscreen/phone/index.html](../devices/common/infoscreen/phone/index.html) | +75 / −0 | C02, C03 |
+| 新增 | [devices/t551m/infoscreen/phone/manifest.json](../devices/common/infoscreen/phone/manifest.json) | +75 / −0 | C02, C05 |
+| 新增 | [devices/t551m/infoscreen/phone/phone.css](../devices/common/infoscreen/phone/phone.css) | +90 / −0 | C02, C03 |
+| 新增 | [devices/t551m/infoscreen/phone/phone.js](../devices/common/infoscreen/phone/phone.js) | +316 / −0 | C02, C03 |
+| 新增 | [devices/t551m/infoscreen/phone/voice.uc](../devices/common/infoscreen/phone/voice.uc) | +79 / −0 | C02 |
+| 新增 | [devices/t551m/infoscreen/power-menu.js](../devices/common/infoscreen/power-menu.js) | +116 / −0 | C01 |
+| 新增 | [devices/t551m/infoscreen/power-service](../devices/common/infoscreen/power-service) | +12 / −0 | C01 |
+| 新增 | [devices/t551m/infoscreen/screen-power.py](../devices/common/infoscreen/screen-power.py) | +105 / −0 | C01, C03 |
+| 新增 | [devices/t551m/infoscreen/sim-service](../devices/common/infoscreen/sim-service) | +12 / −0 | C03 |
+| 新增 | [devices/t551m/infoscreen/sim-status.py](../devices/common/infoscreen/sim-status.py) | +162 / −0 | C03, C08 |
+| 新增 | [devices/t551m/infoscreen/sims.uc](../devices/common/infoscreen/sims.uc) | +45 / −0 | C03 |
+| 新增 | [devices/t551m/infoscreen/stage.py](../devices/common/infoscreen/stage.py) | +339 / −0 | C01, C02, C03, C04, C05 |
+| 新增 | [devices/t551m/infoscreen/ui-settings.uc](../devices/common/infoscreen/ui-settings.uc) | +41 / −0 | C01 |
+| 新增 | [devices/t551m/infoscreen/wallpaper-rpc.py](../devices/common/infoscreen/wallpaper-rpc.py) | +199 / −0 | C01 |
+| 新增 | [devices/t551m/infoscreen/wallpapers.js](../devices/common/infoscreen/wallpapers.js) | +108 / −0 | C01 |
 
 #### 设备层：回归测试（54 个文件）
 

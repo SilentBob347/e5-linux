@@ -6,7 +6,7 @@ import tempfile
 import time
 import unittest
 
-SOURCE=Path(__file__).with_name('infoscreen')/'native/screen-power.c'
+SOURCE=(Path(__file__).resolve().parents[1] / 'common/infoscreen')/'native/screen-power.c'
 
 
 class ScreenPower(unittest.TestCase):

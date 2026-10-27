@@ -12,6 +12,7 @@ Windows/固件在本机完成；Apple Silicon App 可按用户授权使用上游
 | 内容 | 位置与规则 |
 | --- | --- |
 | 仓库源码 | 当前 E5 Git 工作区，不再额外复制整个仓库 |
+| 共用屏幕源码 | `devices/common/infoscreen/`，所有屏幕机型共用；设备端路径和既有服务名保持不变 |
 | Linux 构建工作区 | 本机既有 `/home/kano/openwrt-build`，不迁往 C 盘 |
 | 内核源码、对象 | 复用工作区的既有缓存；本次不重建或迁移各机型缓存 |
 | 干净公共 rootfs | 工作区 `base/e5` 一份；不得使用含用户配置的实机 root |

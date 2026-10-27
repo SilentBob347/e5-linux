@@ -134,7 +134,7 @@ class Charge(unittest.TestCase):
         self.assertEqual(acl['read']['ubus']['e5-charge'], ['get'])
         self.assertEqual(acl['write']['ubus']['e5-charge'], ['configure','full_once'])
         self.assertIn('usr/libexec/rpcd/e5-charge', (APP/'Makefile').read_text())
-        screen = (ROOT.parent/'devices/t551m/infoscreen/base/settings.uc').read_text()
+        screen = (ROOT.parent/'devices/common/infoscreen/base/settings.uc').read_text()
         for key in ('enabled','start','stop','full_once'):
             self.assertIn(key, screen)
         self.assertIn('e5-charge.main.stop', screen)

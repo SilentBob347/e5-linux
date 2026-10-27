@@ -5,7 +5,7 @@ import subprocess
 import unittest
 from unittest.mock import patch
 
-spec = importlib.util.spec_from_file_location('details', Path(__file__).parent / 'infoscreen/details-radio.py')
+spec = importlib.util.spec_from_file_location('details', Path(__file__).resolve().parents[1] / 'common/infoscreen/details-radio.py')
 details = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(details)
 

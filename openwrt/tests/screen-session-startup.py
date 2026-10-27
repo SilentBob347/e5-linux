@@ -3,7 +3,7 @@
 from pathlib import Path
 import subprocess
 import unittest
-SOURCE = (Path(__file__).resolve().parents[2] / 'devices/t551m/infoscreen/base/session').read_text()
+SOURCE = (Path(__file__).resolve().parents[2] / 'devices/common/infoscreen/base/session').read_text()
 class Session(unittest.TestCase):
     def cleanup(self, alive):
         block = SOURCE[SOURCE.index('CLIENTS='):SOURCE.index('on_term()')]

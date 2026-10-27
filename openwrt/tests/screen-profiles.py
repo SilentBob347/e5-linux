@@ -4,7 +4,7 @@ import runpy
 import tempfile
 
 repo = Path(__file__).resolve().parents[2]
-screen = runpy.run_path(str(repo/'devices/t551m/infoscreen/stage.py'))['stage']
+screen = runpy.run_path(str(repo/'devices/common/infoscreen/stage.py'))['stage']
 with tempfile.TemporaryDirectory() as tmp:
     for profile in ('t551m', 'e5', 'm8', 't512n', 'yuanhang41s', 'k1', 'lym10k'):
         root = Path(tmp)/profile
@@ -23,7 +23,7 @@ with tempfile.TemporaryDirectory() as tmp:
         for service in ('t551m-screen-power','t551m-sim-status','e5-voice-audio'):
             assert b'python3' not in (root/'etc/init.d'/service).read_bytes()
         for name in ('calls.js', 'transport.js'):
-            assert (root/'usr/share/e5-infoscreen/www'/name).read_bytes() == (repo/'devices/t551m/infoscreen'/name).read_bytes().replace(b'\r\n',b'\n')
+            assert (root/'usr/share/e5-infoscreen/www'/name).read_bytes() == (repo/'devices/common/infoscreen'/name).read_bytes().replace(b'\r\n',b'\n')
         assert b'T551MTransport' in (root/'usr/share/e5-infoscreen/www/sdk/e5.js').read_bytes()
         assert b'T551MCalls.subscribe' in (root/'etc/e5-infoscreen/plugins/phone/phone.js').read_bytes()
         assert (root/'etc/e5/device-profile').read_text().strip() == profile

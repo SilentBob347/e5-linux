@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 
 TOP = Path(__file__).resolve().parents[2]
-SOURCE = TOP/'devices/t551m/infoscreen/native'
+SOURCE = TOP/'devices/common/infoscreen/native'
 OUT = TOP/'out/native-screen'
 TARGETS = {
     't551m-screen-power': ['screen-power.c'],

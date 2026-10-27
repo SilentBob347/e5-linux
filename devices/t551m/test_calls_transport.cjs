@@ -13,7 +13,7 @@ const context={
     fetch:()=>{requests++;return new Promise(resolve=>{complete=resolve;});}
 };
 context.window=context;vm.createContext(context);
-vm.runInContext(fs.readFileSync(__dirname+'/infoscreen/calls.js','utf8'),context);
+vm.runInContext(fs.readFileSync(__dirname+'/../common/infoscreen/calls.js','utf8'),context);
 const calls=context.T551MCalls;
 const emit=data=>source.onmessage({data:JSON.stringify(data)});
 (async()=>{

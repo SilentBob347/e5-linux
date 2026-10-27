@@ -34,8 +34,8 @@ class ScreenNativeCI(unittest.TestCase):
         self.assertEqual(workflow.count('            out/native-screen/'),2)
         self.assertLess(workflow.index('python3 devices/t551m/test_screen_runtime.py -v'),
                         workflow.index('docker volume rm e5-openwrt-src'))
-        self.assertIn("'devices/t551m/infoscreen/native/*.c'",workflow)
-        self.assertIn("'devices/t551m/infoscreen/native/*.h'",workflow)
+        self.assertIn("'devices/common/infoscreen/native/*.c'",workflow)
+        self.assertIn("'devices/common/infoscreen/native/*.h'",workflow)
         runtime=(TOP/'openwrt/overlay/etc/init.d/e5-voice-audio').read_text()
         self.assertNotIn('python3',runtime)
         self.assertIn('/usr/libexec/e5-voice-native',runtime)

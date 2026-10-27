@@ -170,7 +170,7 @@ jobs:
             out/openwrt/*.apk
             out/openwrt/e5-modemmanager-build.json
             out/native-screen/
-          key: patched-apk-${{ runner.os }}-${{ runner.arch }}-${{ env.E5_WRT_VER }}-${{ hashFiles('devices/common/build-screen-native.py', 'devices/t551m/infoscreen/native/*.c', 'devices/t551m/infoscreen/native/*.h', 'devices/t551m/infoscreen/native/*.py', 'devices/t551m/test_screen_native.py', 'devices/t551m/test_screen_runtime.py', 'devices/t551m/test_screen_sanitizer.py', 'tools/build-layout.json', 'tools/openwrt-package-state.py', 'openwrt/tests/voice-identity.py', 'openwrt/tests/sim-power.py', 'openwrt/build-modemmanager.sh', 'openwrt/build-bluez.sh', 'openwrt/patches/**', 'rootfs/deb-patches/modemmanager-*.patch', 'rootfs/deb-patches/bluez-*.patch') }}
+          key: patched-apk-${{ runner.os }}-${{ runner.arch }}-${{ env.E5_WRT_VER }}-${{ hashFiles('devices/common/build-screen-native.py', 'devices/common/infoscreen/native/*.c', 'devices/common/infoscreen/native/*.h', 'devices/common/infoscreen/native/*.py', 'devices/t551m/test_screen_native.py', 'devices/t551m/test_screen_runtime.py', 'devices/t551m/test_screen_sanitizer.py', 'tools/build-layout.json', 'tools/openwrt-package-state.py', 'openwrt/tests/voice-identity.py', 'openwrt/tests/sim-power.py', 'openwrt/build-modemmanager.sh', 'openwrt/build-bluez.sh', 'openwrt/patches/**', 'rootfs/deb-patches/modemmanager-*.patch', 'rootfs/deb-patches/bluez-*.patch') }}
       - name: Compile patched ModemManager and BlueZ
         if: steps.packages.outputs.cache-hit != 'true'
         run: |

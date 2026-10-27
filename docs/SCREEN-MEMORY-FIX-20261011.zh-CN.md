@@ -28,8 +28,8 @@ E5的TF新包重新装配用户态根镜像，沿用原E5内核和boot，保留T
 - 修复通过改变请求路径规避浏览器重复HTTP加载时的对象保留，未修改系统WebKit库；
   不是对底层引用生命周期问题已彻底修补的声明。
 
-源码仍位于历史目录`devices/t551m/infoscreen/`，E5通过
-`devices/e5/stage.py → devices/t551m/ui.py → infoscreen/stage.py`复用。
+源码现统一位于公共目录 `devices/common/infoscreen/`，E5 通过
+`devices/e5/stage.py → devices/t551m/ui.py → devices/common/infoscreen/stage.py` 复用。
 内部既有`T551M*`接口保留兼容，不作为机型开关，也不决定硬件参数。
 
 ## 验证

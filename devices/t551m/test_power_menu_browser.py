@@ -20,7 +20,7 @@ def main():
     posts = [];reads = [];response = {'ok':False};errors = []
     with tempfile.TemporaryDirectory(prefix='screen-power-nav-') as directory:
         root = Path(directory)
-        sources = runpy.run_path(str(Path(__file__).with_name('infoscreen')/'stage.py'))['sources']()
+        sources = runpy.run_path(str((Path(__file__).resolve().parents[1] / 'common/infoscreen')/'stage.py'))['sources']()
         for name,text in sources.items():
             if not name.startswith('www/'):continue
             target=root/name[4:];target.parent.mkdir(parents=True,exist_ok=True)

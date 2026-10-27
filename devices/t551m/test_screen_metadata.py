@@ -16,7 +16,7 @@ class Metadata(unittest.TestCase):
     def setUpClass(cls):
         # Explicit existing image; never download an image or access hardware.
         subprocess.run(['docker','image','inspect',IMAGE],check=True,stdout=subprocess.DEVNULL)
-        cls.source=runpy.run_path(str(TOP/'devices/t551m/infoscreen/stage.py'))['sources']()['api.uc']
+        cls.source=runpy.run_path(str(TOP/'devices/common/infoscreen/stage.py'))['sources']()['api.uc']
 
     def test_ota_and_legacy_versions_in_full_staged_module(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -51,7 +51,7 @@ class Metadata(unittest.TestCase):
                     self.assertEqual(json.loads(result.stdout),expected)
 
     def test_error_envelope_is_not_rendered_as_empty_page(self):
-        app=(TOP/'devices/t551m/infoscreen/base/app.js').read_text(encoding='utf-8')
+        app=(TOP/'devices/common/infoscreen/base/app.js').read_text(encoding='utf-8')
         start=app.index('function pageRead(');end=app.index('\nasync function poll()',start)
         harness='''const assert=require('node:assert/strict');
 const pageRequests=new Map();let data, marks=[];

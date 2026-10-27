@@ -8,7 +8,7 @@ import tarfile
 import tempfile
 import unittest
 
-BASE = Path(__file__).parent / 'infoscreen/base'
+BASE = Path(__file__).resolve().parents[1] / 'common/infoscreen/base'
 
 
 class UpdateCompatibility(unittest.TestCase):

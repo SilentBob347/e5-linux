@@ -95,7 +95,7 @@ int main(void) {
     def test_staging_keeps_shared_paths_and_existing_profile_behavior(self):
         original = runpy.run_path
         def run(path, *args, **kwargs):
-            if Path(path) == TOP/'devices/t551m/infoscreen/stage.py':
+            if Path(path) == TOP/'devices/common/infoscreen/stage.py':
                 return {'stage': lambda root: None}
             if Path(path) == TOP/'devices/t551m/ui.py':
                 ui = original(path, *args, **kwargs)

@@ -53,7 +53,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/':
             return self.reply(b'<script src="/transport.js"></script>', 'text/html')
         if self.path == '/transport.js':
-            return self.reply((repo / 'devices/t551m/infoscreen/transport.js').read_bytes(), 'text/javascript')
+            return self.reply((repo / 'devices/common/infoscreen/transport.js').read_bytes(), 'text/javascript')
         reads.append((self.path, bool(self.headers.get('User-Agent'))))
         if self.path == '/api/slow':
             time.sleep(.8)

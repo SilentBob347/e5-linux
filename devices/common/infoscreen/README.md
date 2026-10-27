@@ -1,8 +1,16 @@
-# T551M 屏幕界面
+# 共用屏幕界面
 
-适配 320×480 触控屏，随 `devices/t551m/ui.py` 安装。上游为 Enceka/infoscreen
+E5、T551M、M8、T512N、远航 41S、K1 和 LYM-10K 共用的屏幕程序，
+由各机型 staging 经 `devices/t551m/ui.py` 调用本目录 `stage.py` 安装。
+最初适配 320×480 触控屏，现按各机型配置显示大小和硬件路由。
+源码统一放在 `devices/common/infoscreen/`；机型专属驱动、面板、触摸和硬件配置仍在各机型目录。
+上游为 Enceka/infoscreen
 1.6.7，提交 `c9beb784e66ea5ac243e9bade78d5d9b0e962379`；`base/` 保留参与适配的
 原文件及 MIT 许可，`stage.py` 从固定版本生成设备文件，重复执行结果一致。
+
+源码位置调整不改变设备端 `/usr/share/e5-infoscreen`、`/etc/e5-infoscreen`，
+也不修改已有 `t551m-*` 服务／RPC／可执行文件名称；这些名称属于兼容接口，
+不代表会安装另一套 T551M 专用屏幕。原生服务由 `devices/common/build-screen-native.py` 构建。
 
 ## 使用
 

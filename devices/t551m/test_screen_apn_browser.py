@@ -17,7 +17,7 @@ TOP = Path(__file__).resolve().parents[2]
 class ScreenAPN(unittest.TestCase):
     def test_shared_crud_sim_binding_themes_and_failure(self):
         from playwright.sync_api import sync_playwright
-        sources = runpy.run_path(str(TOP / 'devices/t551m/infoscreen/stage.py'))['sources']()
+        sources = runpy.run_path(str(TOP / 'devices/common/infoscreen/stage.py'))['sources']()
         status = dict(sims=[], time=int(time.time()), tz_offset=0, clock='',
                       modem={'sim_card':0}, wan={}, traffic={'rx_rate':0,'tx_rate':0,'rx_total':0,'tx_total':0},
                       wifi={}, clients=[], battery={}, usb={}, system={}, sms={'unread':[]}, notifications=[],

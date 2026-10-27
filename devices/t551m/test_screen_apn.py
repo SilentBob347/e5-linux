@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 HERE=Path(__file__).resolve().parent
-screen=runpy.run_path(str(HERE/'infoscreen/stage.py'))
+screen=runpy.run_path(str(HERE.parent/'common/infoscreen/stage.py'))
 
 
 class ScreenAPN(unittest.TestCase):

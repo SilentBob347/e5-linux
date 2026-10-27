@@ -10,7 +10,7 @@ from unittest.mock import patch
 import os
 import zlib
 
-spec=importlib.util.spec_from_file_location('wallpaper',Path(__file__).with_name('infoscreen')/'wallpaper-rpc.py')
+spec=importlib.util.spec_from_file_location('wallpaper',(Path(__file__).resolve().parents[1] / 'common/infoscreen')/'wallpaper-rpc.py')
 wallpaper=importlib.util.module_from_spec(spec);spec.loader.exec_module(wallpaper)
 
 
