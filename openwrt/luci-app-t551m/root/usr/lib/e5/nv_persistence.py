@@ -464,15 +464,39 @@ class Manager:
 
     def identity(self):
         profile = (self.root/'etc/e5/device-profile').read_text().strip()
-        slot = (self.root/'etc/e5/modem-slot').read_text().strip()
         if profile not in PROFILES: raise NVError('nv_profile_unknown')
-        if slot == 'current':
-            slots = set(re.findall(r'(?:androidboot|sprdboot)\.slot_suffix=_([ab])(?:\s|$)',
-                                  (self.root/'proc/cmdline').read_text()))
-            if len(slots) != 1: raise NVError('nv_slot_unknown')
-            slot = slots.pop()
-        if slot not in ('a', 'b'): raise NVError('nv_slot_unknown')
-        return profile, slot
+        policy_path = self.root/'etc/e5/modem-slot'
+        policy = policy_path.read_text().strip() if policy_path.exists() else None
+        if policy is not None and policy not in ('a', 'b', 'current'):
+            raise NVError('nv_slot_unknown')
+
+        def slots_in(names):
+            slots = set()
+            for name in names:
+                path = self.root/name
+                if path.exists():
+                    slots.update(re.findall(
+                        r'(?:^|\s)(?:androidboot|sprdboot)\.slot_suffix\s*=\s*"?_([ab])"?(?=\s|$)',
+                        path.read_text()))
+            return slots
+
+        # These are the inputs actually bound into modem_control's chroot by
+        # vendor-start.sh. Linux's own cmdline/bootconfig can name the opposite
+        # slot and must not substitute for a missing modem-slot on old installs.
+        slots = slots_in(('run/e5-cmdline.android', 'run/e5-bootconfig.android',
+                          'opt/e5/android/proc/cmdline', 'opt/e5/android/proc/bootconfig'))
+        if policy in ('a', 'b'):
+            slots.add(policy)
+        firmware_path = self.root/'lib/firmware/android-firmware-slot'
+        if not slots and policy is None and firmware_path.exists():
+            value = firmware_path.read_text().strip()
+            if value not in ('a', 'b'): raise NVError('nv_slot_unknown')
+            slots.add(value)
+        if not slots and policy == 'current':
+            slots = slots_in(('proc/cmdline', 'proc/bootconfig'))
+        if len(slots) > 1: raise NVError('nv_slot_conflict')
+        if not slots: raise NVError('nv_slot_unknown')
+        return profile, slots.pop()
 
     def inspect(self, local_state=None):
         profile, slot = self.identity()
@@ -566,10 +590,11 @@ class Manager:
                 from nv_writeback import read_imeis
                 identities = read_imeis(self)
             except (OSError, ValueError, NVError): pass
+            reason = str(error) if isinstance(error, NVError) else 'nv_state_unavailable'
             return {'ok': True, 'initialized': self.store.exists(), 'validated': False,
                     'work_validated': work_valid, 'original_validated': False, 'last_sync': last,
-                    'can_import': False, 'can_export': False, 'reason': str(error) if isinstance(error, NVError) else 'nv_state_unavailable',
-                    'export_reason': 'nv_state_unavailable', 'imei': identities}
+                    'can_import': False, 'can_export': False, 'reason': reason,
+                    'import_reason': reason, 'export_reason': reason, 'imei': identities}
 
     def preview(self, direction):
         if direction not in ('from-original', 'to-original'): raise NVError('nv_invalid_direction')

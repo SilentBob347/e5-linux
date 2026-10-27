@@ -29,8 +29,8 @@ def record(ident, value):
     return struct.pack('<HH', ident, len(value))+value+b'\xa5'*((-len(value))%4)
 
 
-def image(value=1, generation=7, identity='123456789012345', tail=b'original tail', signed=False):
-    protocol = (record(5, imei(identity))+record(0x179, imei('987654321098765'))+
+def image(value=1, generation=7, identity='123456789012345', tail=b'original tail', signed=False, prefix=b''):
+    protocol = (prefix+record(5, imei(identity))+record(0x179, imei('987654321098765'))+
                 record(0x1a6, b'signature')+record(0x100, bytes([value])*8)+record(0xfffe, b'fill'))
     radio = record(0x200, bytes([value])*13)+record(0xfffe, b'pad!')
     index = bytearray(56); index[:4]=b'INDX'; struct.pack_into('<H', index, 6, 2)
@@ -92,6 +92,87 @@ class Fixture(unittest.TestCase):
         parsed=FixedNV(image())
         self.assertEqual(parsed.imeis(),{'sim1':'123456789012345','sim2':'987654321098765'})
         for bad in (b'',b'\0'*8,b'\xff'*8,b'\xab'*8): self.assertIsNone(decode_imei(bad))
+
+    def test_imei_items_can_move_with_variable_length_preceding_items(self):
+        original = FixedNV(image())
+        for size in (1, 5, 29, 81):
+            moved = FixedNV(image(prefix=record(0x110,b'Z'*size)))
+            self.assertNotEqual(original.items[5][0], moved.items[5][0])
+            self.assertNotEqual(original.items[0x179][0], moved.items[0x179][0])
+            self.assertEqual(original.imeis(), moved.imeis())
+
+    def test_runtime_firmware_slot_survives_missing_old_install_metadata(self):
+        (self.root/'etc/e5/modem-slot').unlink()
+        run = self.root/'run'; run.mkdir()
+        (run/'e5-cmdline.android').write_text('androidboot.slot_suffix=_a sprdboot.slot_suffix=_a console=tty0')
+        (run/'e5-bootconfig.android').write_text('androidboot.slot_suffix = "_a"\n')
+        (self.root/'proc/cmdline').write_text('sprdboot.slot_suffix=_b')
+        (self.root/'proc/bootconfig').write_text('androidboot.slot_suffix = "_b"\n')
+        self.assertEqual(self.manager.identity(), ('e5','a'))
+        state = self.manager.status()
+        self.assertTrue(state['original_validated'])
+        self.assertTrue(state['work_validated'])
+        self.assertEqual(state['imei']['working'], FixedNV(image()).imeis())
+        self.assertEqual(state['imei']['original'], FixedNV(image()).imeis())
+
+    def test_runtime_b_is_not_guessed_from_linux_a(self):
+        (self.root/'etc/e5/modem-slot').unlink()
+        proc = self.root/'opt/e5/android/proc'; proc.mkdir(parents=True)
+        (proc/'cmdline').write_text('sprdboot.slot_suffix=_b androidboot.slot_suffix=_b')
+        (self.root/'proc/cmdline').write_text('sprdboot.slot_suffix=_a')
+        self.assertEqual(self.manager.identity(), ('e5','b'))
+
+    def test_unknown_modem_slot_cannot_use_linux_boot_slot(self):
+        (self.root/'etc/e5/modem-slot').unlink()
+        (self.root/'proc/cmdline').write_text('sprdboot.slot_suffix=_b')
+        with self.assertRaisesRegex(nv.NVError, 'nv_slot_unknown'):
+            self.manager.identity()
+
+    def test_firmware_metadata_can_identify_an_offline_old_root(self):
+        (self.root/'etc/e5/modem-slot').unlink()
+        path = self.root/'lib/firmware/android-firmware-slot'; path.parent.mkdir(parents=True)
+        path.write_text('a\n')
+        self.assertEqual(self.manager.identity(), ('e5','a'))
+
+    def test_current_policy_and_explicit_choice_take_priority_over_import_metadata(self):
+        path = self.root/'lib/firmware/android-firmware-slot'; path.parent.mkdir(parents=True)
+        path.write_text('a\n')
+        self.assertEqual(self.manager.identity(), ('e5','b'))
+        (self.root/'etc/e5/modem-slot').write_text('current\n')
+        (self.root/'proc/cmdline').write_text('sprdboot.slot_suffix=_b')
+        (self.root/'proc/bootconfig').write_text('androidboot.slot_suffix = "_b"\n')
+        self.assertEqual(self.manager.identity(), ('e5','b'))
+
+    def test_conflicting_runtime_sources_or_explicit_policy_disable_sync(self):
+        run = self.root/'run'; run.mkdir()
+        (run/'e5-cmdline.android').write_text('sprdboot.slot_suffix=_a')
+        with self.assertRaisesRegex(nv.NVError, 'nv_slot_conflict'):
+            self.manager.identity()
+        (self.root/'etc/e5/modem-slot').unlink()
+        (run/'e5-bootconfig.android').write_text('androidboot.slot_suffix = "_b"\n')
+        with self.assertRaisesRegex(nv.NVError, 'nv_slot_conflict'):
+            self.manager.identity()
+        state = self.manager.status()
+        for key in ('reason', 'import_reason', 'export_reason'):
+            self.assertEqual(state[key], 'nv_slot_conflict')
+        self.assertFalse(state['can_import'])
+        self.assertFalse(state['can_export'])
+
+    def test_original_mapping_failure_does_not_hide_working_imeis(self):
+        with patch.object(self.manager, 'map', side_effect=nv.NVError('nv_original_not_protected')):
+            identities = wb.read_imeis(self.manager)
+            self.assertEqual(identities['working'], FixedNV(image()).imeis())
+            self.assertNotIn('original', identities)
+
+    def test_partition_numbers_are_discovered_from_sysfs_names(self):
+        for index, name in enumerate(nv.NAMES, 81):
+            block = self.root/f'sys/class/block/mmcblk0p{index}'; block.mkdir(parents=True)
+            (block/'uevent').write_text(f'DEVNAME=mmcblk0p{index}\nPARTNAME={name}\n')
+            device = self.root/f'dev/mmcblk0p{index}';device.parent.mkdir(exist_ok=True);device.write_bytes(b'fixture')
+        with patch.object(nv.stat,'S_ISBLK',return_value=True), patch.object(nv.fcntl,'ioctl',return_value=struct.pack('i',1)):
+            mapped = nv.Manager(self.root).map()
+        self.assertEqual({name:path.name for name,path in mapped.items()},
+                         {name:f'mmcblk0p{index}' for index,name in enumerate(nv.NAMES,81)})
 
     def test_full_copy_does_not_reencode_headers_generation_or_tail(self):
         for signed in (False,True):

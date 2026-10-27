@@ -21,13 +21,14 @@ CONTRACT = 'full-nv-v3-verified'
 
 
 def read_imeis(manager):
+    import nv_persistence as nv
     _, slot = manager.identity(); primary = 'nr_fixnv1_'+slot
-    paths = {'working': manager.store/primary, 'original': manager.map()[primary]}
     result = {}
-    for name, path in paths.items():
+    for name in ('working', 'original'):
         try:
+            path = manager.store/primary if name == 'working' else manager.map()[primary]
             if not path.is_symlink(): result[name] = FixedNV.read(path).imeis()
-        except (OSError, ValueError): pass
+        except (OSError, ValueError, nv.NVError): pass
     return result
 
 

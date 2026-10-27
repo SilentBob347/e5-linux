@@ -58,6 +58,17 @@ function fixture(lang='zh',valid=true,busy=false,options={}){
   }
  }
  const invalid=fixture('en',false);assert(invalid.button('Original NV → OpenWrt').disabled);assert(invalid.button('OpenWrt NV → original').disabled);
+ for(const [lang,unknown,conflict,importLabel,exportLabel] of [
+  ['zh','无法确认基带实际使用的固件槽位','基带实际使用的槽位信息与配置不一致','原机 NV → OpenWrt','OpenWrt NV → 原机'],
+  ['en','The active modem firmware slot could not be identified','The active modem slot and configured selection disagree','Original NV → OpenWrt','OpenWrt NV → original'],
+  ['tr','Etkin modem donanım yazılımı yuvası belirlenemedi','Etkin modem yuvası ile yapılandırma uyuşmuyor','Orijinal NV → OpenWrt','OpenWrt NV → orijinal']]){
+  for(const [reason,message] of [['nv_slot_unknown',unknown],['nv_slot_conflict',conflict]]){
+   const s=fixture(lang,true,true);await flush();
+   s.status={...s.status,busy:false,validated:false,original_validated:false,can_import:false,can_export:false,reason,export_reason:reason,imei:{},job:null};
+   await s.poll();assert(s.text().includes(message));assert(!s.text().includes(reason));
+   assert(s.button(importLabel).disabled);assert(s.button(exportLabel).disabled);s.unload();
+  }
+ }
  const running=fixture('en',true,true);await flush();assert(running.button('Delete backup').disabled);assert(running.timers.length);
  assert.equal(running.overlays.length,1);running.unload();assert.equal(running.overlays.length,0);const calls=running.requests.length;await running.timers.at(-1).fn();assert.equal(running.requests.length,calls);
  const deleting=fixture('en');await flush();await deleting.button('Delete backup').click();assert(!deleting.requests.some(r=>r.method==='delete_backup'));
