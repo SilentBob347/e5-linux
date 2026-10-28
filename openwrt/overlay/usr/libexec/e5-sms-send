@@ -16,7 +16,9 @@ from sms_pdu import submit
 
 
 def send(number, file, card):
-    text=Path(file).read_text()
+    # Preserve the body verbatim; universal-newline decoding rewrites CRLF.
+    with Path(file).open(encoding='utf-8', newline='') as source:
+        text=source.read()
     pdus=submit(number,text)
     references=[]
     own=receiver.current_card()

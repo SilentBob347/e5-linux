@@ -1,0 +1,19 @@
+#!/bin/sh
+# Older E5 defaults added a permanent rescue alias to the managed LAN.
+# Remove that one legacy alias once, including after changing the primary IP.
+# Keep single-address 77.1 LANs and all unrelated user-configured addresses.
+[ -f /etc/e5/configured.network ] || exit 0
+[ "$(uci -q get network.lan.proto)" = static ] || exit 0
+addresses=$(uci -q get network.lan.ipaddr) || exit 1
+legacy=0
+other=0
+for address in $addresses; do
+    case "$address" in
+        192.168.77.1/24) legacy=1 ;;
+        *) other=1 ;;
+    esac
+done
+[ "$legacy:$other" = 1:1 ] || exit 0
+uci -q del_list network.lan.ipaddr='192.168.77.1/24' || exit 1
+uci commit network || exit 1
+exit 0

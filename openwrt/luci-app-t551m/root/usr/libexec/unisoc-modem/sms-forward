@@ -581,7 +581,8 @@ device_info_sms() {
     printf '%s%s' "$_model" "${nickname:+ ($nickname)}"
 }
 sms_units() {
-    printf '%s' "$1" | LC_ALL=C awk '
+    # The added terminator lets NR>1 count every original LF, including tails.
+    printf '%s\n' "$1" | LC_ALL=C awk '
         BEGIN { for (i=1; i<256; i++) ord[sprintf("%c",i)]=i; count=0 }
         NR>1 { count++ }
         {

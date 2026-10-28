@@ -1,10 +1,9 @@
 #!/bin/sh
 # E5 first boot: the network the Debian image has (docs/FINDINGS.md 31, 35, 37).
 #
-#  * lan: br-lan with the USB port (usb0) and the hotspot, 192.168.9.1/24, and
-#    192.168.77.1 as a second address -- the initramfs's rescue subnet, which a
-#    host may still hold a lease for; DHCP .10-.200, the USB host (the gadget's
-#    host_addr) always at .2, with the LAN gateway and DNS for mobile internet
+#  * lan: br-lan with the USB port (usb0) and the hotspot, 192.168.9.1/24;
+#    the initramfs rescue address ends at LAN handoff. DHCP .10-.200, the USB
+#    host (the gadget's host_addr) always at .2, with the LAN gateway and DNS for mobile internet
 #    over both IPv4 and IPv6, as dnsmasq on Debian does it;
 #  * wan: the baseband through ModemManager (its unisoc plugin; the modem's
 #    device id is the uid the plugin's rules give it), IPv4 and IPv6;
@@ -47,7 +46,6 @@ set network.lan.proto='static'
 delete network.lan.ipaddr
 delete network.lan.netmask
 add_list network.lan.ipaddr='192.168.9.1/24'
-add_list network.lan.ipaddr='192.168.77.1/24'
 set network.lan.ip6assign='64'
 
 delete network.wan

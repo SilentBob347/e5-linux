@@ -1,5 +1,8 @@
 # Hardware and modem fixes
 
+- Before adapting UFS hardware, read `docs/UFS-PORTING.zh-CN.md`. The MU300
+  U30 Air results are reference evidence, not proof of E5 or Changxing 60
+  support. Verify this model's storage and stock behavior. Do not use fastboot.
 - Use each model's stock Android firmware behavior as the reference for power,
   charging, battery accounting, radio initialization and reconnection.
 - Prefer the actual device's driver/RIL binary and device tree over a merely

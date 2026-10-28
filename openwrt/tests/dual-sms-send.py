@@ -34,6 +34,7 @@ class Send(unittest.TestCase):
   self.assertEqual(queries[-1],(0,'CFUN?'))
   self.assertFalse(any('SPSWDATA' in q or 'CFUN=' in q for card,q in queries))
   self.assertFalse(any(any(word in ['e5-sim','ifdown','ifup'] for word in command) for command in commands))
+  self.submissions=[command[-1] for command in commands if command[-1].startswith('AT+E5SMS=1,')]
   return result,inbox
  def test_send_from_other_sim_keeps_data_and_records_origin(self):
   result,inbox=self.exercise('test 中文')
@@ -46,4 +47,11 @@ class Send(unittest.TestCase):
  def test_ucs2_smsc_from_modemmanager_charset(self):
   result,inbox=self.exercise('test',ucs2=True)
   self.assertTrue(result['ok']);self.assertEqual(inbox['messages'][0]['sim'],'SIM2')
+ def test_multiline_text_is_preserved(self):
+  text='first\n第二行\r\n\nlast\n'
+  result,inbox=self.exercise(text)
+  self.assertTrue(result['ok']);self.assertEqual(inbox['messages'][0]['text'],text)
+  self.assertEqual(len(self.submissions),1)
+  self.assertNotIn('\n',self.submissions[0])
+  self.assertTrue(bytes.fromhex(self.submissions[0].split(',',1)[1]).endswith(text.encode('utf-16-be')))
 if __name__=='__main__':unittest.main()

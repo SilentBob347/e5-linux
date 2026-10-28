@@ -7,9 +7,12 @@
 # bridge (bridge_empty, 90-e5) and usb0 is in no configuration of its; adding
 # a port to a bridge, or taking it out, leaves the port's link alone (Debian
 # does the same, opt/e5/net-bridge.sh).
-[ "$ACTION" = ifup ] && [ "$INTERFACE" = lan ] || exit 0
+[ "$INTERFACE" = lan ] || exit 0
+case "$ACTION" in ifup|ifupdate) ;; *) exit 0 ;; esac
 [ -e /sys/class/net/usb0 ] && [ -e /sys/class/net/br-lan ] || exit 0
-# the initramfs put 192.168.77.1 on usb0 itself; it is br-lan's now
+# Do not discard the early management address before LAN has an IPv4 address.
+[ -n "$(ip -4 -o addr show dev br-lan scope global)" ] || exit 0
+# The initramfs rescue address must not survive as a second management IP.
 ip -4 addr flush dev usb0
 echo 1 > /proc/sys/net/ipv6/conf/usb0/disable_ipv6
 [ -e /sys/class/net/br-lan/brif/usb0 ] || ip link set usb0 master br-lan

@@ -20,6 +20,17 @@ function text(v) { return v == null || v === '' ? null : replace(''+v,/[\r\n]/g,
 function device(v) { return type(v)=='string' && v!='.' && v!='..' && match(v,/^[A-Za-z0-9_.:-]{1,15}$/) ? v : null; }
 function exists(p) { return fs.stat(ROOT+p)!=null; }
 function executable(p) { return fs.access(ROOT+p,'x')==true; }
+export function sim_state(slot) {
+    if(!(slot in ['0','1']))return 'unknown';
+    let row=obj('/run/t551m-sims.json')?.sims?.[int(slot)];
+    let now=num(split(rd('/proc/uptime'),' ')[0]);
+    // Reuse the existing per-slot collector; never query AT from an HTTP read.
+    if(type(row)!='object' || row.slot!==int(slot) || (type(row.updated)!='double' && type(row.updated)!='int') ||
+       now==null || now<row.updated || now-row.updated>15)return 'unknown';
+    if(row.present===false && row.registration=='absent')return 'absent';
+    if(row.present===true)return row.registration=='locked'?'locked':'ready';
+    return 'unknown';
+};
 function call(bus,o,m) { return bus?.call(o,m,{}) || {}; }
 function net(dev) {
     dev=device(dev);
@@ -241,7 +252,8 @@ export function info(slot) {
             country:text(wifi.country),enc:wifi.enc || 'none',hidden:wifi.hidden ?? null,hostapd:hapd.status=='ENABLED'?1:0,
             clients:stations.rows,clients_n:stations.count},
         lan:{leases:length(leases),ip:address(rows4,lan,false),list:leases},
-        modem:{alive:cached.alive && exists('/dev/wwan0at0')?1:0,atd:atd?1:0,data_paused:!viewing || !wan.up?1:0,viewing_data_sim:viewing?1:0,data_sim:data_slot in ['0','1']?int(data_slot):null},
+        modem:{alive:cached.alive && exists('/dev/wwan0at0')?1:0,atd:atd?1:0,data_paused:!viewing || !wan.up?1:0,viewing_data_sim:viewing?1:0,data_sim:data_slot in ['0','1']?int(data_slot):null,
+            sims:map(['0','1'],n=>({slot:int(n),state:atd?sim_state(n):'unknown'}))},
         boot:boot(),capabilities:{vpn:executable('/etc/init.d/mu300-vpn')?1:0,dualboot:executable('/opt/e5/e5-next-boot')?1:0},
         conns:conntrack(),traffic:obj('/run/unisoc-modem-traffic/view'+(slot in ['0','1']?'-sim'+slot:'')+'.json'),
         vpn:{enabled:enabled?1:0,engine,up:exists('/sys/class/net/xtun') || exists('/sys/class/net/sbtun')?1:0}};
