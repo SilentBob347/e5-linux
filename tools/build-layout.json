@@ -8,6 +8,7 @@
   },
   "defaults": "{repo}/work/e5-port/clean-openwrt-base.tar",
   "busybox": "{repo}/work/t551m/busybox",
+  "ufs_identity_helper": "{repo}/out/changxing60/ufs-id",
   "block_apk": "{repo}/out/openwrt/block-mount-guarded.apk",
   "wifi_apks": "{repo}/work/wifi-sae",
   "local_kernel_build": {
@@ -49,6 +50,12 @@
       "kernel": "{workspace}/kernels/lym10k",
       "stock_boot": "/mnt/d/随身WiFi/岭燕老头乐/燕子备份/燕子备份/boot_b.bin",
       "misc_head": "/mnt/d/随身WiFi/岭燕老头乐/燕子备份/燕子备份/misc.bin"
+    },
+    "changxing60": {
+      "kernel": "{workspace}/kernels/changxing60",
+      "stock_boot": "{repo}/dumps/changxing60-stock/boot_a.img",
+      "misc_head": "{repo}/dumps/changxing60-stock/misc-head.bin",
+      "platform_config": "{workspace}/kernels/m8/config"
     }
   }
 }

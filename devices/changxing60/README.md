@@ -1,0 +1,157 @@
+# 畅行 60 / ZTE 7552N（P720S20）适配记录
+
+更新：2026-10-29。分支 `feat/changxing60-bringup`。目前已启动完整 RAM OpenWrt，
+原始 UFS/NV 保持只读；功能适配、硬件验收与正式安装支持分开记录，尚不是正式安装包。
+
+## 已核对的原厂输入
+
+- 实机 Android 13：`ZTE/CN_P720S20/P720S20:13/TP1A.220624.014/20240919.212928:user/release-keys`。
+- 内核 `5.4.254-android12-9-g619997ff2210`，平台 T760 / UMS9620-AB。
+- 当前 Android **B**，诊断 **A**；工具从当次采集的实际槽位推导，不把这个关系作为通用默认。
+- UFS YMTC `YMUS8A1TC2A2C1`，约 119.172 GiB，用户 LUN `sda`，4096 字节逻辑块，76 个分区。GPT 没有可直接安装的大块未分配空间。
+- userdata 为 F2FS、FBE＋metadata 加密，Android 挂载 `dm-39`。**未获清空/缩容授权，不执行安装或格式化。**
+- 显示 480×854、两条 DSI lane，原厂选择 `lcd_easyquick_aixiesheng_boe_mipi_hd`；偏压 TI65132B。
+- 触摸 SPI AXS15205，音频 AW87xxx，充电器 `ti,bq2560x_chg`、I2C 0x6b、实读芯片 ID 0x14。不能套用 41S 的 ST7123/AW883xx/0x1a 充电器，或 T551M 的 A6 编码。
+
+本机 DT、配置、原厂驱动/固件、BSP 与启动镜像、少量 GPT 摘要等保存在私有 `dumps/changxing60-stock/`。不提交设备序列号、原始 NV 或 IMEI。
+GPL 参考取自已有 `mu300-kernel` 缓存的 ZTE U30 Air 源码 `b50db5b6224c11db42a246e8fcdaad1e1d59f478`，与实机 build ID 不同；它只是协议/驱动参考，不能称为本机同版源码。
+
+## 已编译及实机证据
+
+使用登记的 `/home/kano/openwrt-build` 和独立 `kernel-views/changxing60`、`objects/changxing60`；共享底层源码未重置、未克隆。交付 Image、Image.lk 和完整模块来自同一轮构建。
+
+| 轮次 | 结果与处理 |
+| --- | --- |
+| R1 / bringup1 | 内核和 UFS 已运行；DPHY 在 DSI 驱动数据未就绪时解引用 NULL。USB glue 又提前要求未加载的 charger boost，导致无管理通道。保留 pstore 后由用户返回 Android。 |
+| R2 / bringup2 | DPHY 先检查 supplier；USB 设备模式延后获取仅主机需要的真实 boost regulator。NCM/ACM 和控制台恢复，无该 Oops；GPT 主备摘要与 Android 相同。 |
+| R3 | 两个内核把同一 UFS 序列号描述符呈现成不同文本，不能拿文本做跨系统身份。新增只读 READ DESCRIPTOR 工具；Android 验证成功，诊断内核缺 UFS BSG 配置。 |
+| R4 / bringup3 | 启用原生 UFS BSG，Android/Linux 原始描述符身份一致，精确恢复并回读原 32 字节 BCAB。补加载显示所需的 `sprd_vpu_pw_domain.ko` 后，DPU/DSI/DPHY、DRM card0 和 fb0 全部就绪，模式 480×854、约 60 Hz；GPT 主备摘要均与原件一致。 |
+| R5 | 同一内核，自动运行 90 秒分辨率自适应色块/棋盘测试，等待实屏反馈；独立 180 秒诊断定时器返回 Android。 |
+| R6 | 实屏色块正常，但首次 `fb0` 息屏/亮屏触发 DPU 初始化 SError。检查实际 DT 后发现显示全局复位是 `reset-syscon`/`vau_reset-syscon`，移植驱动却只找命名 reset，且忽略解析失败。 |
+| R7 | 首次修正显示复位时，副 DSI 的资源误挂在尚未初始化的 class device 上，导致模块加载失败。已从 pstore 定位并改为实际 platform device；这是本次适配代码引入的错误。 |
+| R8 | 修正资源所有者后，息屏/亮屏不再出现 DPU SError。但自写 AXS 驱动的固件版本读回 `f430` 等异常值，触摸 IRQ 随后停止，触摸 ESD 通知使屏幕约每 3.6 秒重复恢复，实物出现花屏和闪烁。诊断启动有界返回 Android B，未刷正式系统。 |
+| R9 | 使用同一显示修正、不加载 AXS 触摸的隔离镜像。远程执行一次 `fb0` 息屏 3 秒再亮屏，DPU 恢复成功；无周期性 ESD 恢复或 SError。但亮屏仍报 DSI 命令 FIFO 未清空和一次 DPU underflow，显示链路仍需单独核对，不能宣布已修好。试验后主动重启返回 Android。 |
+| R10 | 与 R9 相同、不加载触摸，只修正 `sprd_dsi_set_work_mode()` 将等待函数的 `0=成功` 误当成布尔真值的缺陷。重复息屏/亮屏后，DSI FIFO 误报消失；DPU 仍有一次 underflow，说明不能把两项合并判断。试验后主动重启返回 Android。 |
+| R11 | 保持 R10 内核，加入本机 AXS 固件与版本校验，且试验内核含另一机型 SPI 字间隔对照。实际读回 `f530`，与原厂 `0019` 不符；触摸驱动按校验失败停止绑定，未启动 ESD 循环。该 SPI 参数假设被否定，已从后续默认准备流程撤下。试验后主动重启返回 Android。 |
+| R12 | 从本机原厂 `spi-sprd.ko` 反汇编确认其 CTL1 默认设置 DO-stay 位 `0xc000`，在本机独立内核视图只补该项，R11 的 SPI 字间隔试验已撤回。实机版本仍读成 `f432`，该项单独不足以修复。RAM 中固件 SHA-256 与原厂文件一致，排除载荷传输损坏。主动重启后回到 Android B，misc 32 字节与试验前完全一致。 |
+| R13–R15 | 按原厂 PRAM 命令读回固件：未补字间隔时，多个位置有随机位错误；原厂二进制确认的 FIFO 阈值 `0x208` 单独补入后仍有位错误。R13 的首段前 8 字节一致，但完整首段不一致，不能据此判断整个固件正确。 |
+| R16–R17 | 从本机原厂 `spi-sprd.ko` 反汇编确认 CTL5 最低为 9；在已核实的 DO-stay 和 FIFO 阈值基础上仅补这个字间隔。R16 四处抽查一致；R17 完整 183/183 个 PRAM 块逐字节读回一致。版本命令仍读到 `7390` 等随机值，触摸未绑定。 |
+| R18 | 按原厂 AXS 驱动 `axs_ts_hw_init()` 加首次高→低 10 ms→高 120 ms 复位等待，完整 PRAM 再次 183/183 一致，版本仍非 `0019`。随后在约 50 秒显式重新 bind，PRAM 仍全对、版本仍错误；单纯晚启动不能解决。 |
+| R19–R20 | R19 在多次独立版本命令之后，一次单 CS 读取含 `0019`；R20 把单 CS 放到最前面却读错，不能把 R19 的延迟响应当成协议改变的证据。恢复原厂独立命令／读取 CS。 |
+| R21 | 按本机 `spi-sprd.ko` 的 RX_END 路径同时清除 RX/TX 完成位 `0x300`，PRAM 全对，版本仍错误。 |
+| R22 | 在版本命令与独立两字节读取之间等待 1–1.5 ms，首次读到 `0019`；重复启动、息屏／亮屏后的固件校验和版本均通过。发现触摸中断能够到达，但亮屏后会停止，继而触发心跳超时和 ESD 恢复；还不是触摸验收成功。 |
+| R23 | 本机 `zte_tpd.ko` 在 `axs_ts_probe+0x76c` 将报文长度设为 `0x20`；把移植驱动误读的 33 字节改为原厂 32 字节。版本继续通过；亮屏后心跳停止仍可复现，长度修正单独不足以解决。新增心跳／ESD 原因日志以区分主动错误报告和中断停止。 |
+| R24 | 冷启动连续观测到原厂正常心跳 `00 ff ff…`，约每 0.52 秒一次；息屏／亮屏后中断停止，确认并非冷启动固件未运行。显示 DISPC 中断亦停止增长。 |
+| R25 | 增加只读 DPU 日志及临时 DRM 调试。冷启动硬件图层掩码为 1；亮屏后掩码为 0，`sprd_plane_atomic_update()` 明确打印 `resume or suspend, no need to update plane`，跳过现有 framebuffer。其后 underflow、显示中断和触摸心跳停止。这是已确认的图层恢复缺陷；触摸与显示停止之间的具体硬件关联仍需修复后复核。 |
+| R26 | 修正 active_changed 时跳过图层恢复的旧逻辑：亮屏后硬件图层恢复为 1。但 underflow 和触摸心跳停止仍存在，图层修正不是完整根因。纯背景色对照也没有恢复心跳。 |
+| R27 | 实机发现 DPI 时钟实际为 307.2 MHz，目标为 38.4 MHz。移植时把原厂 `reg - 4` 机械转成了新核心的 `reg + 4`，分频器落到错误寄存器；公共导入器改传 signed `-4`，所有引入的 OFFSET 时钟都核对地址相同。修复后实机 DPI 为 38.4 MHz，连续两次息屏／亮屏后显示和触摸中断继续增长，无 underflow、心跳超时、ESD 恢复或 SError。用户确认画面不闪烁、不花屏，实际滑动后通过只读 MT ioctl 读到 `(445,451)`，松手后 tracking ID 均为 -1。 |
+| R28 | 显式 `--power-test` 加载本机 0x14 充电器及 UMP9620 FGU/charger-manager；没有加载 A6/SGM41513 规则。电池电压约 4.418 V、温度 26.2°C，USB SDP 输入限流 500 mA，SOC 保留 100%，没有重新标定。发现通用充电器 STATUS 仅看软件开关，补为原厂 CHRG_STAT 硬件状态。 |
+| R29 | 本机充电目标读回 4.432 V，与原厂 4.400 V 请求的实际编码一致。临时停充后 calibrate=0、STATUS=Not charging、电流为 0；恢复后 calibrate=1、STATUS=Charging、电流约 +258 mA，USB 控制台始终可用。该接口名是旧驱动的充电使能，不是重标 SOC。未测试外接充电器、OTG 或完整充放电周期。 |
+| R30 | 去除默认 DPU 寄存器诊断日志；全 PRAM 读回改为显式 `verify_pram=1`，正常启动默认关闭。实机卸载后按默认参数重载触摸，版本仍为 0019，息屏恢复后 IRQ 从 257 增至 269，DPI 仍为 38.4 MHz，无 underflow／心跳超时。返回 Android B 后原 32 字节启动控制完全一致。 |
+| R31 | 校验载荷后切入完整 tmpfs OpenWrt，procd、Cage/Cog、Panfrost 和屏幕状态 HTTP 接口运行；根目录及临时目录均在 RAM，UFS 所有分区仍只读，没有 Android 挂载或基带/NV 写入进程。屏幕事件服务初次未启用，手动启动共享 native observer 后恢复，本机背光可从 0 设置到 120，触摸 IRQ 从 771 增至 779，无显示异常。USB 在交接时 DHCP 不通，重启电脑对应 USB 网卡后 SSH 恢复；后续 RAM 配置改用既有空桥/hotplug 交接，不再让 netifd 直接重启 usb0，该配置尚待复测。完整界面的实屏观感仍待用户反馈。 |
+| R33 | 导入本机已校验的 vendor 运行库、WCN/蓝牙/音频固件，加入 UFS NV 发现层；九个原始分区保持只读，基带使用 RAM loop。MM 找到模组并实际联网；蓝牙 hci0 和音频 DSP 正常。发现首次配置早于 Wi-Fi PHY，补事件触发的原有首次配置重试，不另加定时轮询或改用户设置。 |
+| R34 | 修正原有 AW87xxx 控制实现没有注册到声卡的缺口，实机出现 Receiver/Music/Voice/Off 枚举。完整重编 Image/模块；热点自动启动、NCM 管理正常。USB 接入既有自动、设备、主机、主机＋外部供电接口；未进行物理 OTG/扩展坞验收。 |
+| R35 | 本机 SML 的 DVFS_INIT 分发、三域字节解码、成对表路径和 selector 算法核实后加入精确哈希支持表。只在 RAM 配置施加 +3125 µV，三个域 32 个频点均可读取，默认频率列表不变。CPU1 下线/上线、调频/调度器、passive 温控阈值及 Receiver/Music 模式切换均成功，测试后恢复。 |
+| R36 | 重新以零偏移启动；与 R35 比较，32 个电压表项精确回落 3125 µV。再次恢复全部核心、schedutil、原厂最高频率和 70/85°C passive 阈值，critical 110°C 未改。通过真实屏幕 HTTP API 连续两次息屏/亮屏，无显示 underflow、ESD 循环或 SError；54 个通话 mixer 控制全部存在。蓝牙实际扫描到三个附近设备，退出扫描后 Discovering=no。 |
+| R37 | 完整 RAM 模式改用公共 `90-e5` 的真实网络/APN/IPv6/防火墙初始化，仅替换实验地址和电脑保留 MAC。确认 DHCP 正常池为 .10–.200、LAN /64 配置、IPv4 NAT、WAN 联网；只给实验电脑的 cx60probe 标签隐藏 IPv4 网关/DNS。开机暂时早于 MM 的 NO_DEVICE 已由既有公共事件恢复，无手工拨号。继续补齐本机主麦克风与 codec IIS 路由，60 个声卡控制项及所用枚举值核对通过；热应用后 observer 无错误。 |
+
+R31 的独立 480 秒 RAM watchdog 正常返回 Android B，开机完成后精确回读的 misc 32 字节与 R30 一致。
+电脑端排查时临时添加的 `192.168.92.2` 静态地址已移除，并恢复该 USB 网卡的 DHCP；未改电脑当前 Wi-Fi。
+`ram-ui3.tar.gz` 已把本地 screen WebSocket 的 native observer 提前到 S93（不加载未适配的音频 DSP），
+并采用共享空桥交接及 DHCP broadcast reservation；它尚未替代 R31 的已测 `ram-ui2`，不能声称这些收尾改动已通过实机复测。
+
+R32（用户要求重新看完整界面）：复用已校验的诊断 boot，载入 `ram-ui3`。
+空桥交接后电脑自动取得 `192.168.92.2`，无需重启 USB 网卡或添加静态地址，SSH 正常。
+约 41 秒时确认 Cage/Cog、屏幕状态 HTTP 和提前启动的 native observer 已运行，
+没有 WebSocket 连接失败日志；背光 120、触摸 IRQ 继续增长。实屏操作仍等待本轮用户确认。
+
+用户随后已看到界面，反馈整体偏小；畅行60专属浏览器缩放改为 `--scale=1.25`，
+480×854 对应约 384×683 逻辑布局，文字、菜单、插件及触摸区域一同缩放。
+已在本轮 RAM 系统热应用，Cog 页面加载成功并记录实际解锁；其他机型的缩放和用户字体设置未改。
+
+**当前判断：**本轮屏幕与触摸的基础验收通过，包括真实画面、真实触摸坐标和连续两轮显示恢复。之前的异常至少涉及 SPI 工厂参数、版本命令响应、错误报文长度、图层恢复，以及公共时钟导入器的分频地址符号错误；不能归结为某一个触摸 GPIO 或靠延长开机等待解决。仍须在完整 UI、实际系统 suspend/resume 和长时间运行中复核。充电/电量计完成 RAM 诊断中的基础读取和停充／恢复；完整充放电与外接充电器尚未验收。
+
+时钟偏移修正位于 `devices/common/clock-offsets.py`，由 M8 家族的共同准备入口调用。
+已用本机验证，其他使用该导入入口的机型尚未重新编译或部署，不能把这轮结果当作它们的实机验收。
+静态回归逐个核对所有 OFFSET 时钟保留原厂寄存器地址。充电回归实际编译并运行准备后的 C 函数，
+回放原厂电压编码的 6001 个请求、全部 32 个电压码、256 种状态字节及总线错误传播。
+
+另一次原厂 Android 只读调查中，直接遍历时钟 regmap 的 `registers` 导致 `regmap_mmio_read32le` SError，
+系统自动返回 Android B；现场保存在本机 `android-debug-read-pstore.txt`。停止这类跨电源域的裸寄存器遍历；
+这不是 OpenWrt UFS I/O 故障，也不能据此回退无关修正。
+
+完整 RAM 系统与 AW87xxx、Wi-Fi、基带、蓝牙、CPU/温控均已接入，下面列出证据与剩余验收。
+全 PRAM 读回仅诊断显式启用，正常路径不执行；DPU 临时寄存器日志已移除。
+保留有效 ESD 通知，不能通过关闭检查掩盖通信错误。本机原厂 `spi-sprd.ko`
+已单独留作只读对照，不能把另一机型的 GPL SPI 时序当作本机事实。
+
+每轮先用 ADB/root 和 dd 写备用槽、flush、完整哈希回读；使用 `flash-probe.py` 的回执检查上一轮备用分区身份。
+首轮已把有差异的 B→A `uboot/sml/teecfg/vbmeta/dtbo/vendor_boot` 同步并校验；`trustos/dtb/init_boot` 相同不写。**当前 Android B、GPT、userdata、NV 未写。** 原件及回执保留电脑端。
+诊断只挂载内存/内核伪文件系统；唯一有界磁盘写入是通过设备身份核对后恢复原始 32 字节启动控制，其余块设备设只读。
+USB 地址 192.168.92.1，DHCP 不发布网关或 DNS；临时无认证控制台只绑定该诊断 USB，不能进入正式发行镜像。
+
+## 完整功能接入与当前测试状态
+
+- **公共功能**：复用 M8 家族的共同 staging，不另外复制看板或屏幕实现。
+  看板、双卡/RF/APN、锁频段/小区、流量/SMS/通知音、电话/HFP、蓝牙管理、
+  CPU 调频/调压/温控/核心开关、USB 管理、限充/上电自启、低电量保护、NV 设置、
+  网络恢复、BBR、ttyd 和系统补丁的源码/服务均进入完整根目录。
+  系统补丁插件已注册，但实验根没有正式 release 身份，不能当成正式 OTA 目标。
+- **联网**：R34/R35/R36 的 MM 和 netifd 正常，真实蜂窝 ICMP 成功；
+  5 GHz 信道149、80 MHz、WPA2 热点连续多轮自动启动。R37 补齐完整热点的 DHCP/NAT/IPv6 配置，
+  区别于此前仅供电脑的诊断池；手机实际接入及吞吐待用户测。
+- **音频**：本机原厂 `audio_route.xml` 中 handset/speaker 共用 AOL 和 Speaker Function，
+  分别使用 Receiver/Music PA 配置；保留各自原厂 DSP 音量曲线和 codec 增益。
+  媒体最大 DG 33、AO 6、DAC 0 来自本机配置，不继承 M8 的额外 30 dB 衰减或五档上限。
+  主麦克风使用本机 `main_mic` 的 MIC13、ADC LRCLK 及 MIC1PGA 配置；codec 的 TX/RX
+  IIS 端口也从本机 `only_codec_p/c` 导入，不启用无依据的辅助/三麦克风路径。
+  最终 60 个通话 mixer 控制、DSP、hostless PCM 节点和 observer 均就绪，功放模式实际切换并还原。
+  **真实铃声出声、听筒/外放听感、通话麦克风仍未验收，不能称为实测通过。**
+- **蓝牙**：hci0 通电及真实扫描通过；配对和音频待用户测试。
+- **CPU**：原厂三簇 0–3/4–6/7、32 个频点、默认 schedutil；调压正向一档及恢复、
+  核开关、调频和温控编辑实际通过。详细固件依据见 [CPU-POWER.zh-CN.md](CPU-POWER.zh-CN.md)。
+- **NV**：公共发现层显式按 UFS userdata 的唯一内部 LUN 选择分区，USB 外盘和歧义拓扑拒绝。
+  启动使用 RAM 工作副本；基带 NV 页面能够读取两边校验及身份。已补入带源码/ELF 回执的
+  只读 UFS 身份工具，修正完整根漏带工具导致的 `nv_device_unknown`。
+  九个原始 NV 校验未变，未做原机写回或主动同步测试。
+- **屏幕**：正常 UI 使用 1.25 缩放；去掉开机自动色块/棋盘测试。R36 真实界面 API
+  两轮亮屏/息屏通过，恢复原背光值；真实系统 suspend 是另一项验收，尚未完成。
+- **充电/USB**：本机芯片 0x14、目标电压编码、硬件 STATUS、停充/恢复已验证。
+  网页限充状态读取正常。USB 后端实际显示三种共享协议及四种角色，电脑 NCM 已实测；
+  其余模式不能以“菜单可选”替代物理验收。
+
+本轮 192 项离线回归通过，覆盖 CPU、网络启动/命令顺序、NV 准备/校验/同步、
+首次无线配置及并发通知、UFS 拓扑和身份工具 staging、显示/时钟、充电编码及原厂音频配置。
+这些测试不包含真实通话、短信发送、物理插拔或长期续航验收。
+
+实机日志在忽略目录 `dumps/changxing60-stock/r33-*` 至 `r37-*`；含敏感标识的
+记录仅保留本地，不提交。`check-ram.py --exercise` 只做可恢复的运行时控制，
+不发送短信、不发起电话、不写 GPT/userdata/原机 NV。其 `--keep-running` 选项在确认
+零偏移及健康 observer 后，仅停止本次 480 秒实验返回定时器，供用户次日验收；
+不修改原厂 Android 的 fallback，也不是关闭正常系统硬件看门狗。
+
+## 明天测试与仍未开放的范围
+
+- 铃声、短信提示音；真实电话的听筒/外放切换、双向声音及音量。
+- 手机连接热点、实际上网/吞吐；蓝牙配对和音频。
+- 外接充电器、USB 识别/OTG、充放电与低电量行为；Android 本次报告 learned full=2880 mAh，而诊断初始采用 DT 3000 mAh，不能把 SOC 当前相同当作学习容量和完整电量计已完全对齐。
+- 原厂显示 ESD mode=4 已连接触摸心跳/错误通知；正常恢复测试无误触发。异常状态实际报错后的恢复仍需额外验收，不能用关闭 ESD 代替验证。
+- 所有安装/更新/重装/卸载路径的 UFS 接入、冻结安装器资源与正式打包。新 `storage.sh` / Python 库目前仅诊断调用，不代表老流程已能处理 UFS。
+- 正常写入、长时间运行、真实系统 suspend/resume。短时 GPT 读取成功不等于长期存储验收。
+
+本轮留在完整 RAM OpenWrt，USB 管理地址 `192.168.92.1`、root/root；
+热点 `Changxing60-OpenWrt`，实验密码 `cx60test2026`。
+只读存储的实验系统重启/掉电后仍回 Android；没有将该 RAM 配置当作用户正式安装。
+最近可重现载荷为 `out/changxing60/ram-full8-factory-voice.tar.gz`，配套
+`out/changxing60/probe/boot-r34-full.img` 和 bringup4 的完整模块。
+
+R37 首次回 Android 后，在尚未完成原厂 USB 组合切换时启动上传，ADB 短暂重新枚举。
+失败发生于已匹配备用分区的只读哈希检查，尚未写 trial misc；保留失败回执并删除该次
+已知临时上传文件后，待 boot_completed=1 再重新校验/部署成功。没有把一次传输中断
+当成新 UFS 故障，工具已增加 Android 启动完成检查。
+为避免实验机向电脑抢 IPv6 默认路由，仅实验 USB 网卡禁用 RouterDiscovery，
+原状态保存在忽略目录 `r37-pc-router-discovery-before.json`；未改电脑 Wi-Fi。
+
+后续试启动继续使用原始备份、最新回执和当轮只读 BCAB 快照；不得覆写首次备份或假造默认 A 槽记录。关闭试验时应逐项恢复原备用槽并回读，而不是只改 misc 后声称已恢复原镜像。
+
+只读 UFS 身份工具的固定构建入口为 `tools/build-ufs-id.py`，仍须包在 `tools/build-release.py run` 中执行。输出路径由 `tools/build-layout.json` 登记，并生成源码/ELF/编译器回执。`tools/tests/ufs-id-read.py` 实际编译被测 C 函数，检查 READ-only 请求及错误、截断和损坏的响应；这不替代硬件验收。

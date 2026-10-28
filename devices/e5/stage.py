@@ -41,6 +41,8 @@ def stage_nv(root):
     # before either vendor writer starts. No donor NV data is staged here.
     for name in ('prepare', 'verify', 'stop'):
         copy(root, SHARED / ('nv-' + name + '.py'), 'opt/e5/t551m-nv-' + name)
+    copy(root, TOP / 'devices/common/block-storage.py', 'usr/lib/e5/block_storage.py', 0o644)
+    copy(root, TOP / 'boot/storage.sh', 'usr/lib/e5/storage.sh', 0o644)
     service = (TOP / 'openwrt/overlay/etc/init.d/e5-vendor').read_text()
     service = service.replace('START=20', 'START=20\nSTOP=10')
     service = service.replace('procd_set_param respawn 3600 5 0',

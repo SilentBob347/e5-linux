@@ -1,0 +1,15 @@
+#!/bin/sh
+# Complete a pending first-boot setup when its PHY appears after uci-defaults.
+# The existing installer script preserves custom/user configuration itself.
+script=/etc/uci-defaults/91-e5-wireless
+[ -f "$script" ] || exit 0
+# S92 and a PHY add event can coincide. Serialize only this pending setup;
+# the lock is released on exit and does not delay a normal configured boot.
+exec 9>/var/lock/e5-first-wireless.lock || exit 1
+flock -n 9 || exit 0
+[ -f "$script" ] || exit 0
+set -- /sys/class/ieee80211/*
+[ -e "$1" ] || exit 0
+sh "$script" || exit 1
+rm -f "$script"
+wifi reload

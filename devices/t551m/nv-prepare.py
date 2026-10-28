@@ -208,9 +208,15 @@ def main():
     READY.unlink(missing_ok=True)
     BOOT_SOURCE.unlink(missing_ok=True)
     devices = {}
-    for entry in Path('/sys/class/block').glob('mmcblk0p*/uevent'):
+    import runpy
+    mapper = Path('/usr/lib/e5/block_storage.py')
+    entries = (runpy.run_path(str(mapper))['entries']() if mapper.exists()
+               else Path('/sys/class/block').glob('mmcblk0p*/uevent'))
+    for entry in entries:
         props = dict(line.split('=', 1) for line in entry.read_text().splitlines() if '=' in line)
         if props.get('PARTNAME') in NAMES:
+            if props['PARTNAME'] in devices or props.get('DEVNAME') != entry.parent.name:
+                raise RuntimeError('Ambiguous NV partition map')
             devices[props['PARTNAME']] = Path('/dev') / props['DEVNAME']
     if set(devices) != set(NAMES):
         raise RuntimeError('Incomplete T551M NV partition map')

@@ -1,0 +1,8 @@
+sprd_vpu_pw_domain.ko
+unisoc-iommu.ko
+ocp2131.ko
+drm_kms_helper.ko
+drm_dma_helper.ko
+drm_client_lib.ko
+sprd-drm.ko
+spi-sprd.ko

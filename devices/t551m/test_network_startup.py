@@ -381,7 +381,7 @@ modemmanager_unisoc_block_restart wan unisoc-sipc
         path.parent.mkdir(parents=True, exist_ok=True)
         original = "config core 'main'\n\toption device '/dev/ttyUSB0'\n"
         path.write_text(original)
-        for profile in ('e5', 'm8', 't512n', 'yuanhang41s', 'k1', 'lym10k'):
+        for profile in ('e5', 'm8', 't512n', 'yuanhang41s', 'k1', 'lym10k', 'changxing60'):
             path.write_text(original)
             patch_root(self.root, profile)
             self.assertIn("option auto_work_mode_default '152'", path.read_text())

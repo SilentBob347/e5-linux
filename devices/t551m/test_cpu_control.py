@@ -421,6 +421,20 @@ class VoltageFirmwareTest(unittest.TestCase):
             cache.unlink()
             self.assertFalse(self.check_hashes([digest, other]))
 
+    def test_changxing60_ufs_requires_own_matching_sml_and_soc(self):
+        digest = 'de9b51aa6381d0af921ae5e1ba6499aff8e99e88c92c53259d62a9106c29553a'
+        self.assertFalse(self.check_hashes([digest, digest]))
+        self.compatible.write_bytes(b'sprd,ums9620\0')
+        cache = self.control.runtime / module.VOLTAGE_CAPABILITY_CACHE
+        cache.unlink()
+        # Use UFS-style SCSI partition names: no MMC-specific discovery.
+        for old, new in (('mmcblk0p6', 'sda6'), ('mmcblk0p7', 'sda7')):
+            (self.root / 'dev' / old).rename(self.root / 'dev' / new)
+            (self.root / 'sys/class/block' / old).rename(self.root / 'sys/class/block' / new)
+        self.assertTrue(self.check_hashes([digest, digest]))
+        cache.unlink()
+        self.assertFalse(self.check_hashes([digest, 'unknown']))
+
 
 if __name__=='__main__':
     unittest.main()

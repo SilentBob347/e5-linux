@@ -11,7 +11,10 @@ if not nv['READY'].exists():
     raise SystemExit('NV preparation did not complete')
 expected = json.loads(nv['BOOT_SOURCE'].read_text())
 checked = set()
-for entry in Path('/sys/class/block').glob('mmcblk0p*/uevent'):
+mapper = Path('/usr/lib/e5/block_storage.py')
+entries = (runpy.run_path(str(mapper))['entries']() if mapper.exists()
+           else Path('/sys/class/block').glob('mmcblk0p*/uevent'))
+for entry in entries:
     props = dict(line.split('=', 1) for line in entry.read_text().splitlines() if '=' in line)
     name = props.get('PARTNAME')
     if name not in nv['NAMES']:

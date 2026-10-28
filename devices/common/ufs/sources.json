@@ -1,0 +1,11 @@
+{
+  "origin": "MU300 U30 Air UFS port; reference evidence, not Changxing 60 hardware validation",
+  "vendor_repository": "https://github.com/dikeckaan/zte-ums9620-kernel-5.4.254",
+  "vendor_commit": "b50db5b6224c11db42a246e8fcdaad1e1d59f478",
+  "donor_repository": "mu300-linux-clean-tf-7.2",
+  "donor_commit": "0043a5d87ca456dbadfb2947f82769497331233c",
+  "files": {
+    "ufs-sprd-qogirn6pro.c": "a226d11dcb5238eeabe9bce14dfc611a1f79608fb21f79e1604713d5dc7c1a21",
+    "ufs-sprd-qogirn6pro.h": "bf022a7b983b02b2c0e111ab2487ebc962f1c241123d5f3de32f8fa55e1d7bdf"
+  }
+}

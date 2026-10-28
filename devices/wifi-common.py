@@ -14,12 +14,18 @@ def stage(root):
     root = Path(root).resolve()
     if root == Path('/').resolve():
         raise ValueError('Expected an offline root')
-    name = 'etc/hotplug.d/ieee80211/90-sc2355-recovery'
-    source = Path(__file__).resolve().parents[1] / 'openwrt/overlay' / name
-    target = root / name
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(source.read_bytes().replace(b'\r\n', b'\n'))
-    target.chmod(0o755)
+    for name in ('etc/hotplug.d/ieee80211/90-sc2355-recovery',
+                 'etc/hotplug.d/ieee80211/20-e5-first-wireless',
+                 'etc/init.d/e5-first-wireless', 'usr/libexec/e5-first-wireless'):
+        source = Path(__file__).resolve().parents[1] / 'openwrt/overlay' / name
+        target = root / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(source.read_bytes().replace(b'\r\n', b'\n'))
+        target.chmod(0o755)
+    link = root / 'etc/rc.d/S92e5-first-wireless'
+    link.parent.mkdir(parents=True, exist_ok=True)
+    if not link.is_symlink():
+        link.symlink_to('../init.d/e5-first-wireless')
 
 
 def apply(kernel):

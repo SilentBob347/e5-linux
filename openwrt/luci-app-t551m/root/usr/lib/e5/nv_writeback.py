@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import stat
 import struct
 import time
@@ -60,8 +61,15 @@ def preview_writeback(manager, state):
 
 
 def device_identity(manager):
-    try: cid = (manager.root/'sys/class/block/mmcblk0/device/cid').read_text().strip()
-    except OSError as error: raise FormatError('nv_device_unknown') from error
+    try:
+        kind = manager.root/'etc/e5/storage-kind'
+        if kind.exists() and kind.read_text().strip() == 'ufs':
+            import runpy
+            cid = runpy.run_path(str(manager.root/'usr/lib/e5/block_storage.py'))['identity'](manager.root)
+        else:
+            cid = (manager.root/'sys/class/block/mmcblk0/device/cid').read_text().strip()
+    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+        raise FormatError('nv_device_unknown') from error
     if not re.fullmatch('[0-9a-fA-F]{32}', cid): raise FormatError('nv_device_unknown')
     return {'profile': manager.identity()[0], 'slot': manager.identity()[1], 'cid': cid.lower()}
 

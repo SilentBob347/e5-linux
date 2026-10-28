@@ -29,6 +29,9 @@ VERIFIED_UMS9620_VOLTAGE_FIRMWARE = frozenset({
     # AngelCare.K1.YUAN.YD.T1.0: DVFS code/tables match the verified M8
     # payload byte-for-byte; devices/k1/CPU-POWER.zh-CN.md.
     'efc2e6cf3a83a1dbbedecbea12673a7320520632b7b3f59c9072276f9b24d5eb',
+    # ZTE 7552N/P720S20 20240919.212928: recipient DVFS_INIT decoder,
+    # paired table paths and 3.125 mV selector; devices/changxing60/CPU-POWER.zh-CN.md.
+    'de9b51aa6381d0af921ae5e1ba6499aff8e99e88c92c53259d62a9106c29553a',
 })
 # LYM's factory export is one complete signed DHTB image, not a padded
 # partition dump. Identify the entire image (header + code/data + certificate),

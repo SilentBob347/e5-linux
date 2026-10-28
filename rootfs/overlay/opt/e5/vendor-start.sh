@@ -23,7 +23,15 @@ android_import_perms "$A" dev/__properties__ || { echo "Cannot repair imported A
 
 echo "stage=dev-nodes"
 mkdir -p /dev/block/by-name /dev/socket
-for u in /sys/class/block/mmcblk0p*/uevent; do
+case "$(cat /etc/e5/storage-kind 2>/dev/null)" in
+  ufs)
+    . /usr/lib/e5/storage.sh
+    disk=$(e5_storage_disk) || { echo 'internal UFS topology unavailable' >&2; exit 4; }
+    set -- /sys/class/block/"$disk"[0-9]*/uevent ;;
+  ''|emmc) set -- /sys/class/block/mmcblk0p*/uevent ;;
+  *) echo 'unsupported internal storage kind' >&2; exit 4 ;;
+esac
+for u in "$@"; do
   [ -r "$u" ] || continue
   d=${u%/uevent}; d=${d##*/}
   n=

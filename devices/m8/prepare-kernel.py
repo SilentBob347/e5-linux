@@ -72,15 +72,10 @@ def apply(kernel, *, charger_adapter=None, recipient='m8'):
     # E5's clock core keeps legacy ibias tables and frequency tables distinct.
     text = text.replace('SPRD_PLL_HW(', 'SPRD_PLL_FTABLE_HW(')
     text = text.replace('SPRD_PLL_FW_NAME(', 'SPRD_PLL_FTABLE_FW_NAME(')
-    # Donor OFFSET means a fixed four-byte divider offset; this clock core
-    # takes that offset explicitly. Each call has nine plain arguments.
-    def divider(match):
-        fields = [p.strip() for p in match.group(1).split(',')]
-        if len(fields) != 9:
-            raise ValueError('Unexpected composite clock arguments')
-        fields.insert(6, '0x4')
-        return 'SPRD_COMP_CLK_DATA_OFFSET(' + ', '.join(fields) + ')'
-    text = re.sub(r'SPRD_COMP_CLK_DATA_OFFSET\(([^;]+?)\)', divider, text)
+    # Vendor div.c subtracts its fixed offset; upstream div.c adds it.
+    # Translate the sign as well as the extra API argument.
+    text = runpy.run_path(str(HERE.parent / 'common/clock-offsets.py'))[
+        'translate_legacy_offsets'](text)
     # The donor SC setters use regmap_update_bits, with offset zero here;
     # those operations are identical to this core's regular composite ops.
     text = text.replace('SPRD_SC_COMP_CLK_DATA(', 'SPRD_COMP_CLK_DATA(')

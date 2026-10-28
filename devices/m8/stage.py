@@ -17,7 +17,8 @@ def validate_radio_defaults(config):
 
 
 def stage(root, *, profile='m8'):
-    identities = {'m8': ('VIPME M8', 'VIPME-M8'), 'k1': ('angelcare K1', 'Angelcare-K1')}
+    identities = {'m8': ('VIPME M8', 'VIPME-M8'), 'k1': ('angelcare K1', 'Angelcare-K1'),
+                  'changxing60': ('中兴畅行60', 'Changxing-60')}
     if profile not in identities:
         raise ValueError('Unsupported UMS9620 handheld profile')
     root = Path(root).resolve()
