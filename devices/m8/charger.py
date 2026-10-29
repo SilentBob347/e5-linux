@@ -4,11 +4,13 @@ import runpy
 import re
 
 
-def apply(kernel, *, max_voltage_mv=4250, board='M8'):
+def apply(kernel, *, max_voltage_mv=4250, board='M8', m8_revision_compat=False):
     if type(max_voltage_mv) is not int or not 3856 <= max_voltage_mv <= 4624:
         raise ValueError('Voltage outside the verified stock register range')
     if not re.fullmatch(r'[A-Za-z0-9_-]{1,32}', board):
         raise ValueError('Invalid charger board label')
+    if type(m8_revision_compat) is not bool or (m8_revision_compat and board != 'M8'):
+        raise ValueError('The additional charger revision is exclusive to M8')
     helpers = runpy.run_path(str(Path(__file__).resolve().parent.parent / 't551m/prepare-kernel.py'))
     replace = helpers['replace_function']
     path = kernel / 'drivers/power/supply/bq2560x-charger.c'
@@ -42,6 +44,11 @@ def apply(kernel, *, max_voltage_mv=4250, board='M8'):
 \t */
 \tu8 code = (clamp_val(vol, 3856, 4250) - 3856) / 8;
 \treturn bq2560x_update_bits(info, 0x0e, 0xfe, code << 1);'''.replace('M8', board).replace('4250', str(max_voltage_mv)))
+    # Explicitly selected by the M8 recipient, never by a donor board label.
+    # 41S still replaces the original single-ID gate in its next preparation
+    # step, and K1 retains its stock 0x12-only driver without any new fields.
+    if m8_revision_compat:
+        source = revision_compat(source, replace)
     path.write_text(source)
     for name, marker, addition in (
         ('drivers/power/supply/Kconfig', 'config CHARGER_BQ2560X_SPRD',
@@ -53,3 +60,41 @@ def apply(kernel, *, max_voltage_mv=4250, board='M8'):
         text = path.read_text()
         if marker not in text:
             path.write_text(text + '\n' + addition)
+
+
+def revision_compat(source, replace):
+    """M8-only 0x11 variant from upstream PR #18; preserve the 0x12 map."""
+    def edit(old, new):
+        nonlocal source
+        if source.count(old) != 1:
+            raise ValueError('M8 charger revision anchor changed: ' + old)
+        source = source.replace(old, new, 1)
+
+    edit('if (val != 0x12 || client->addr != 0x6b) {',
+         'if ((val != 0x11 && val != 0x12) || client->addr != 0x6b) {')
+    edit('struct bq2560x_charger_info {',
+         'struct bq2560x_charger_info {\n\tu8 chip_rev;')
+    edit('strscpy(info->charge_ic_vendor_name, "M8-0x12",',
+         'info->chip_rev = val;\n\tstrscpy(info->charge_ic_vendor_name,\n'
+         '\t\tval == 0x11 ? "M8-0x11" : "M8-0x12",')
+    source = replace(source, 'bq2560x_charger_set_current', '''
+\tu32 ma = min(cur / 1000, 3047U);
+\tu8 code;
+\t/* PR #18's M8 variant: 60 mA/LSB, not a cross-board ID rule. */
+\tif (info->chip_rev == 0x11)
+\t\tcode = ma / 60;
+\telse
+\t\tcode = ma <= 1170 ? ma / 90 : (ma - 805) / 57 + 14;
+\treturn bq2560x_update_bits(info, BQ2560X_REG_2,
+\t\tBQ2560X_REG_ICHG_MASK, code);''')
+    return replace(source, 'bq2560x_charger_get_current', '''
+\tu8 value;
+\tint ret = bq2560x_read(info, BQ2560X_REG_2, &value);
+\tif (ret < 0) return ret;
+\tvalue &= BQ2560X_REG_ICHG_MASK;
+\tif (info->chip_rev == 0x11)
+\t\t*cur = value * 60 * 1000;
+\telse
+\t\t*cur = (value <= 13 ? value * 90 :
+\t\t\t(value - 14) * 115 / 2 + 805) * 1000;
+\treturn 0;''')

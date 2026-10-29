@@ -12,6 +12,14 @@ BASE = '020b970e351e'
 HERE = Path(__file__).resolve().parent
 
 
+def prepare_charger(kernel, recipient, charger_adapter=None):
+    if charger_adapter is not None:
+        charger_adapter(kernel)
+    else:
+        runpy.run_path(str(HERE / 'charger.py'))['apply'](
+            kernel, m8_revision_compat=recipient == 'm8')
+
+
 def apply(kernel, *, charger_adapter=None, recipient='m8'):
     kernel = Path(kernel)
     if recipient != 'yuanhang41s' and (kernel / 'drivers/usb/typec/yh41s-usb-policy.h').exists():
@@ -126,7 +134,7 @@ def apply(kernel, *, charger_adapter=None, recipient='m8'):
             '\t{ .compatible = "sprd,ums9620-pwm", .data = &ums9620_pwm_data },',
             '\t{ .compatible = "sprd,ums9620-pwm", .data = &ums9620_pwm_data },\n'
             '\t{ .compatible = "sprd,qogirn6pro-pwm", .data = &ums9620_pwm_data },')
-    (charger_adapter or runpy.run_path(str(HERE / 'charger.py'))['apply'])(kernel)
+    prepare_charger(kernel, recipient, charger_adapter)
     runpy.run_path(str(HERE.parent / 't551m/cpufreq.py'))['apply'](kernel)
     # M8 uses the older three-cluster cpufreq-data-v1 binding, like UMS9620.
     for name in ('sprd-cpufreq-v2-driver.c', 'sprd-cpufreq-v2.h'):
