@@ -99,11 +99,14 @@ class MethodRouting(unittest.TestCase):
                         self.assertEqual(result['profile'],profile)
                         self.assertTrue(result['root'])
 
-    def test_e5_without_bl_gate_still_requires_root_model_and_slot(self):
+    def test_e5_still_requires_root_and_slot_but_returns_model_warning(self):
         a=self.adapter();a.adb.root_status=Mock(return_value='root_permission')
         self.assertFalse(a.probe(SERIAL,'part')['root'])
         a.read_gpt.assert_not_called()
-        for field,value,error in [('ro.product.model','wrong-model','model differs'),('ro.boot.slot_suffix','','slot')]:
+        a=self.adapter();properties=a.adb.properties();properties['ro.product.model']='wrong-model'
+        a.adb.properties=Mock(return_value=properties)
+        self.assertEqual(a.probe(SERIAL,'part')['model_mismatch']['actual_model'],'wrong-model')
+        for field,value,error in [('ro.boot.slot_suffix','','slot')]:
             a=self.adapter();properties=a.adb.properties();properties[field]=value
             a.adb.properties=Mock(return_value=properties)
             with self.subTest(field=field),self.assertRaisesRegex(ValueError,error):a.probe(SERIAL,'part')

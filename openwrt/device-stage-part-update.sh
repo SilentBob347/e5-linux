@@ -33,7 +33,9 @@ else
     [ "$(cat /sys/class/block/$disk/device/type)" = SD ]
 fi
 [ "$(awk '$2=="/" {print $1}' /proc/mounts | tail -1)" = "$dev" ]
-[ "$(cat /etc/e5/device-profile)" = "${E5_UPDATE_PROFILE:?}" ]
+source_profile=${E5_UPDATE_SOURCE_PROFILE:-${E5_UPDATE_PROFILE:?}}
+case "$source_profile:${E5_UPDATE_PROFILE:?}" in *[!a-z0-9:-]*|:*|*:) exit 1 ;; esac
+[ "$(cat /etc/e5/device-profile)" = "$source_profile" ]
 bytes=$(( $(cat "/sys/class/block/$node/size") * 512 ))
 [ "${E5_IMAGE_SIZE:?}" -le "$bytes" ]
 case "${E5_IMAGE_SHA256:?}" in *[!0-9a-f]*|'') exit 1 ;; esac
@@ -102,6 +104,7 @@ cid=$(storage_update_id "$disk")
     echo VERSION=1; echo KIND="$kind"; echo CID="$cid"; echo ROOT_BYTES="$bytes"
     echo RAW_BYTES="$E5_IMAGE_SIZE"; echo RAW_SHA256="$E5_IMAGE_SHA256"
     echo PROFILE="$E5_UPDATE_PROFILE"
+    if [ "$source_profile" != "$E5_UPDATE_PROFILE" ]; then echo SOURCE_PROFILE="$source_profile"; fi
     if [ "${E5_NV_POLICY:-preserve}" = original ]; then echo NV_POLICY=original; fi
 } > request.ready
 sync

@@ -559,16 +559,19 @@ def android_checks():
     profile = package_profile()
     if profile:
         model = sh('getprop ro.product.model').strip()
-        if model not in profile['android_models']:
-            die(f"Wrong device: package is for {profile['profile']}, Android reports {model!r}. Nothing was written.")
-        if profile['profile'] == 'changxing60' and sh('getprop ro.product.device').strip() != 'P720S20':
-            die('Wrong Changxing60 hardware identity')
-        if profile['profile'] == 'k1' and sh('getprop ro.product.device').strip() != 'ums9157_2h10':
-            die('Wrong K1 board; expected ums9157_2h10. Nothing was written.')
-        if profile['profile'] == 'yuanhang41s' and sh('getprop ro.product.device').strip() != 'P720S11':
-            die('Wrong 41S board; expected P720S11. Nothing was written.')
-        if profile['profile'] == 'lym10k' and sh('getprop ro.product.device').strip() != 'RY5G':
-            die('Wrong LYM-10K board; expected RY5G. Nothing was written.')
+        board = sh('getprop ro.product.device').strip()
+        if GUI and hasattr(GUI, 'confirm_device_model'):
+            GUI.confirm_device_model(profile, model, board)
+        else:
+            expected_board = {'changxing60': 'P720S20', 'k1': 'ums9157_2h10',
+                              'yuanhang41s': 'P720S11', 'lym10k': 'RY5G'}.get(profile['profile'])
+            if (model not in profile['android_models'] or
+                    expected_board and board != expected_board):
+                print('Model mismatch / 机型不匹配: package / 安装包 = ' + profile['profile'] +
+                      '; device / 设备 = ' + model + ' (' + board + ')')
+                print('Display, charging or boot may not work. / 屏幕、充电或启动可能不兼容。')
+                if ask('Type yes to continue with this package / 输入 yes 仍使用此安装包: ').strip() != 'yes':
+                    die('Model exception declined; nothing written / 未确认机型例外，尚未写入设备')
     suffix = sh('getprop ro.boot.slot_suffix').strip()
     if suffix not in ('_a', '_b'):
         die('Android slot is unavailable; nothing written')

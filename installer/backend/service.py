@@ -23,6 +23,7 @@ from .transport import Adb, wireless_serial
 from .uninstall import Uninstaller, prepare as prepare_uninstall, persist as persist_uninstall
 from .uninstall_growth import PreservationUnavailable
 from .online_shrink import OnlineShrink, OnlineDecision, inspect as inspect_online, allocation as online_allocation, fallback_plan
+from .model_compat import decision as model_decision, runtime_warning, require_approval
 
 METHODS = {'tf', 'part', 'reinstall', 'image', 'boot', 'update', 'uninstall'}
 
@@ -189,6 +190,8 @@ class Service:
             ctx = Context(self.store, record, lambda *_:None)
             header = {key:record.get(key) for key in ('version','revision','stage','status','choices','plan','completed','error','capacity_check','android_capacity_check')}
             header['model'] = record['device'].get('model')
+            header['model_warning'] = record['device'].get('model_mismatch')
+            header['model_override'] = record.get('model_override')
             header['package'] = {key:record['package'].get(key) for key in ('adapter','profile','kernel','layout')}
             parts = ['OpenWrt Installer diagnostics (redacted)\n'+ctx.sanitize(json.dumps(header,ensure_ascii=False,indent=2))]
             for name in ('debug.previous.ndjson','debug.ndjson'):
@@ -256,6 +259,9 @@ class Service:
             else:
                 plan_adapter = self.adapter()
                 device = plan_adapter.probe(p['serial'], choices['method'])
+            model_prompt, model_approval = model_decision(self.package, device, choices['method'], p)
+            if model_prompt:
+                return model_prompt
             if choices.get('method') != 'update' and device.get('readiness') == 'ready':
                 active_slot = device.get('slot')
                 if active_slot not in ('_a','_b'):
@@ -291,6 +297,8 @@ class Service:
                     device['online_shrink'] = inspect_online(plan_adapter,device)
                 plan = plan_install(self.package, device, choices)
             record = self.store.create(self.package, device, choices, plan)
+            if model_approval:
+                record['model_override'] = model_approval
             record['data_directory'] = str(self.store.directory(record['id']))
             record['secrets'] = {'wifi_key': secrets.token_urlsafe(12)}
             self.store.save(record)
@@ -299,6 +307,7 @@ class Service:
             return self.public(record)
         if command in ('start', 'resume', 'retry'):
             record = self.store.load(p['transaction'])
+            require_approval(record, record['device'])
             if record.get('online_fallback',{}).get('state') == 'awaiting':
                 raise ValueError('Choose whether to prepare an erase-data plan / 请先选择是否准备清空数据的后备计划')
             nv = record.get('nv_recovery', {})
@@ -411,7 +420,7 @@ class Service:
                 raise ValueError('SSH root required')
             kind = self.package['adapter']
             profile = read('cat /etc/e5/device-profile' if kind == 'e5' else 'cat /run/mu300/device')
-            if kind == 'e5' and profile != self.package['profile'] or kind == 'mu300' and profile not in ('f50', 'v50', 'u30air'):
+            if kind == 'mu300' and profile not in ('f50', 'v50', 'u30air'):
                 raise ValueError('Wrong OpenWrt profile / OpenWrt 机型不匹配')
             cid = read(storage_io.runtime_identity_script())
             if not re.fullmatch('[a-f0-9]{32}', cid):
@@ -422,9 +431,14 @@ class Service:
             if re.fullmatch(r'/dev/(?:block/)?(?:mmcblk\d+(?:p\d+)?|sd[a-z]+[1-9][0-9]*|loop\d+)', root_dev):
                 raw = read_bytes(f'dd if={root_dev} bs=1024 skip=1 count=1 2>/dev/null')
                 capacity = verify_ext4_capacity(raw, 0)
-            return dict(serial='ssh:'+key, cid=cid, ssh_key=key, host=host, profile=profile,
+            result = dict(serial='ssh:'+key, cid=cid, ssh_key=key, host=host, profile=profile,
                         model=profile.upper(), system='OpenWrt', slot=read('cat /run/mu300/linux-slot') if kind == 'mu300' else 'B',
                         root=True, readiness='ready', capacity=capacity)
+            if kind == 'e5':
+                warning = runtime_warning(self.package['profile'], profile)
+                if warning:
+                    result['model_mismatch'] = warning
+            return result
         finally:
             client.close()
 

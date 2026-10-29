@@ -10,7 +10,7 @@ import {Dialog, DialogContent, DialogDescription, DialogTitle} from './component
 import {SupportDialog, SupportInfo, type RepositoryId} from './components/support';
 import {helpStrings} from './help-i18n';
 import {strings, type Language} from './i18n';
-import {gib, native, request, stateGroup, subscribe, type AdbConnection, type Device, type Package, type ResetPrompt, type Transaction, type Transfer} from './protocol';
+import {gib, native, request, stateGroup, subscribe, type AdbConnection, type Device, type Package, type ResetPrompt, type ModelPrompt, type Transaction, type Transfer} from './protocol';
 import './style.css';
 
 const HelpCenter = lazy(() => import('./components/help-center').then(module => ({default:module.HelpCenter})));
@@ -57,6 +57,9 @@ function App() {
   useEffect(() => {setOnlineInput('');setOnlineDismissed(false);}, [tx?.online_fallback?.nonce]);
   const [nvDismissed, setNvDismissed] = useState(false);
   const [resetPrompt, setResetPrompt] = useState<ResetPrompt>();
+  const [modelPrompt, setModelPrompt] = useState<ModelPrompt>();
+  const [modelInput, setModelInput] = useState('');
+  const [modelPendingReset, setModelPendingReset] = useState<string>();
   useEffect(() => {setNvDismissed(false);setNvInput('');}, [tx?.nv_recovery?.nonce]);
   const [busy, setBusy] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
@@ -223,10 +226,15 @@ function App() {
     if (['install','advanced','boot'].includes(next)) {setMethod(next === 'boot' ? 'boot' : next === 'advanced' ? 'reinstall' : 'part'); await refresh();}
     if (next === 'update') setMethod('update');
   };
-  const plan = async (resetToken?: string) => {
-    const value = await task(() => request<Transaction | ResetPrompt>('plan', {serial, choices: {method, size_gib: Number(size), grow, host, shrink_strategy:shrinkMode, wipe:method === 'part' && shrinkMode === 'format'}, password, reset_token:resetToken}));
+  const plan = async (resetToken?: string, modelToken?: string, modelConfirmation = modelInput) => {
+    const value = await task(() => request<Transaction | ResetPrompt | ModelPrompt>('plan', {serial, choices: {method, size_gib: Number(size), grow, host, shrink_strategy:shrinkMode, wipe:method === 'part' && shrinkMode === 'format'}, password, reset_token:resetToken,
+      model_token:modelToken, model_confirmation:modelToken ? modelConfirmation : undefined}));
+    if (value && 'confirmation_required' in value && value.confirmation_required === 'model_mismatch') {
+      setResetPrompt(undefined);setModelPrompt(value);setModelInput('');setModelPendingReset(resetToken);return;
+    }
+    if (value) {setModelPrompt(undefined);setModelInput('');}
     if (value && 'confirmation_required' in value) {
-      setResetPrompt(value); reportError(value.reason); return;
+      setResetPrompt({...value,model_token:modelToken}); reportError(value.reason); return;
     }
     if (value) {setResetPrompt(undefined); setPlanOrigin(view); acceptTransaction(value); setView('plan'); setAccepted(false);}
   };
@@ -366,6 +374,7 @@ function App() {
       </>}
       {view === 'plan' && tx && <><div className="eyebrow">{tx.choices.method === 'uninstall' ? t.reviewUninstall : t.review}</div><h1 tabIndex={-1}>{tx.device.model}</h1><p className="intro">{tx.package.name} · ••••{tx.device.serial.slice(-4)}</p>{tx.choices.method === 'uninstall' && impactNotice}<div className="page-scroll scroll-area"><section>{tx.choices.method === 'uninstall' && tx.plan.layout_source === 'device' && <p className="device-hint">{t.uninstallDeviceBounds}</p>}<dl className="plan-list"><div><dt>{tx.choices.method === 'uninstall' ? t.operationMethod : t.installMethod}</dt><dd>{tx.choices.method === 'boot' ? t.boot : tx.choices.method === 'update' ? t.update : (t as unknown as Record<string,string>)[tx.choices.method]}</dd></div><div><dt>{tx.choices.method === 'uninstall' ? t.uninstallTarget : t.target}</dt><dd>{tx.plan.target}</dd></div><div><dt>{tx.choices.method === 'uninstall' ? t.androidAllocation : t.android}</dt><dd>{tx.choices.method === 'uninstall' && <>{gib(tx.plan.previous_android_bytes)} → </>}{gib(tx.plan.android_bytes)}</dd></div><div><dt>{tx.choices.method === 'uninstall' ? t.release : t.allocation}</dt><dd>{tx.choices.method === 'boot' ? '—' : gib(tx.plan.openwrt_bytes)}</dd></div>{tx.choices.method === 'uninstall' ? <><div><dt>{t.reclaim}</dt><dd>{gib(tx.plan.reclaimed_bytes)}</dd></div>{!!tx.plan.released_unallocated_bytes && <div><dt>{t.unallocatedRelease}</dt><dd>{gib(tx.plan.released_unallocated_bytes)}</dd></div>}</> : <div><dt>{t.grow}</dt><dd>{tx.plan.grow ? <Check size={17}/> : '—'}</dd></div>}</dl></section>
         {tx.choices.method !== 'uninstall' && impactNotice}
+        {tx.model_override && <div className="alert danger"><CircleAlert size={20}/><div><strong>{t.modelApproved}</strong><p>{t.modelRisk}</p></div></div>}
         {tx.plan.shrink_strategy === 'online-f2fs' && <div className="alert"><ShieldCheck size={20}/><div><strong>{t.onlineTitle}</strong><p>{t.onlineDesc}</p></div></div>}
         {tx.plan.online_unavailable && <div className="alert danger"><CircleAlert size={20}/><p>{t.onlineUnavailable} {tx.plan.online_unavailable}</p></div>}
         {tx.plan.shrink_strategy !== 'online-f2fs' && (tx.plan.offline || tx.plan.two_stage) && <div className="alert"><RefreshCw size={20}/><p>{tx.choices.method === 'uninstall' ? t.uninstallFirstBoot : t.firstBoot}</p></div>}
@@ -413,6 +422,18 @@ function App() {
         })}>{t.onlineFallbackAction}</Button></div>
       </DialogContent>
     </Dialog>}
+    {modelPrompt && <Dialog open onOpenChange={open => {if (!open && !busy) {setModelPrompt(undefined);setModelInput('');}}}>
+      <DialogContent closeLabel={t.modelCancel}>
+        <div className="dialog-heading"><DialogTitle>{t.modelMismatch}</DialogTitle><DialogDescription>{t.modelMismatchDesc}</DialogDescription></div>
+        <div className="scroll-area">
+          <p><strong>{t.modelPackage}</strong> {modelPrompt.warning.expected_profile} · {modelPrompt.warning.expected_models.join(', ')} {modelPrompt.warning.expected_board || ''}</p>
+          <p><strong>{t.modelDetected}</strong> {modelPrompt.warning.actual_model} {modelPrompt.warning.actual_board || ''} · ••••{modelPrompt.serial_hint}</p>
+          <p className="error-message">{t.modelRisk}</p>
+          <label>{t.modelYes}<input disabled={busy} value={modelInput} onChange={e => setModelInput(e.target.value)} autoComplete="off" spellCheck={false} placeholder="yes"/></label>
+        </div>
+        <div className="dialog-footer"><Button variant="outline" disabled={busy} onClick={() => {setModelPrompt(undefined);setModelInput('');}}>{t.modelCancel}</Button><Button variant="destructive" disabled={busy || modelInput !== 'yes'} onClick={() => void plan(modelPendingReset,modelPrompt.model_token)}>{busy && <LoaderCircle size={16} className="spin"/>}{t.modelContinue}</Button></div>
+      </DialogContent>
+    </Dialog>}
     {waitingNV && !nvDismissed && <Dialog open onOpenChange={open => {if (!open) setNvDismissed(true);}}>
       <DialogContent closeLabel={t.nvRecoveryCancel}>
         <div className="dialog-heading"><DialogTitle>{t.nvRecovery}</DialogTitle><DialogDescription>{t.nvRecoveryDesc}</DialogDescription></div>
@@ -424,7 +445,7 @@ function App() {
       <DialogContent closeLabel={help.close} className="removal-reset-dialog">
         <div className="dialog-heading"><DialogTitle>{t.uninstallResetQuestion}</DialogTitle><DialogDescription>{resetPrompt.model} · ••••{resetPrompt.serial_hint}</DialogDescription></div>
         <div className="reset-choice-body scroll-area"><div className="alert danger"><CircleAlert size={20}/><div><p className="error-message">{resetPrompt.reason}</p><p>{t.uninstallResetExplanation}</p></div></div></div>
-        <div className="dialog-footer"><Button disabled={busy} variant="outline" onClick={() => setResetPrompt(undefined)}>{t.uninstallCancel}</Button><Button disabled={busy} variant="destructive" onClick={() => plan(resetPrompt.reset_token)}>{t.uninstallChooseReset}</Button></div>
+        <div className="dialog-footer"><Button disabled={busy} variant="outline" onClick={() => setResetPrompt(undefined)}>{t.uninstallCancel}</Button><Button disabled={busy} variant="destructive" onClick={() => plan(resetPrompt.reset_token,resetPrompt.model_token,'yes')}>{t.uninstallChooseReset}</Button></div>
       </DialogContent>
     </Dialog>}
     {supportOpen && <SupportDialog language={lang} onOpenChange={changeSupport} onRepository={openRepository}/>}

@@ -89,3 +89,12 @@ plan; it does not format anything. The UI must show that plan and require normal
 `start` confirmation again. Existing offline and explicitly selected format paths
 are retained. Unsupported initial layouts explain `online_unavailable` in the
 reviewed plan. No automatic erase follows a failed resize or transport error.
+
+E5 `plan` may return `confirmation_required: model_mismatch`, `model_token`,
+`warning` and a redacted serial hint. The UI must show detected and expected
+models and require literal lowercase `yes`. Resubmit the same plan with
+`model_token` and `model_confirmation: yes`; a changed device/package/operation
+requires a fresh decision. This is not `start` consent. The saved transaction
+records `model_override`, and execution/reconnection revalidate its scope.
+Root, slot, storage, integrity and NV checks remain separate. See
+`docs/INSTALLER-MODEL-EXCEPTION.zh-CN.md`.

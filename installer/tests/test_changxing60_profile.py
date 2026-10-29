@@ -197,6 +197,7 @@ class Changxing60(unittest.TestCase):
         for slot in ('_a', '_b'):
             with self.subTest(slot=slot):
                 adapter = Adapter.__new__(Adapter)
+                adapter.ctx = None
                 adapter.root = TOP
                 adapter.kind = 'e5'
                 adapter.adb = Transport(slot)

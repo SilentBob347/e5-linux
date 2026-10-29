@@ -20,6 +20,7 @@ from .transport import Adb, push_chunks
 from .boot_image import boot_installed_e5, boot_installed_mu300
 from .mu300_update import update_mu300
 from .diagnostics import DebugStream, traced
+from .model_compat import android_warning, runtime_warning, require_approval
 
 
 def load(path, name):
@@ -137,6 +138,22 @@ class Adapter:
             'reason': explanation}
         self.ctx.stage('nv_recovery', 'waiting_user')
         raise NVConfirmationRequired()
+
+    def confirm_device_model(self, profile, model, board):
+        warning = android_warning(profile, model, board)
+        if warning:
+            if not self.ctx:
+                raise ValueError('Review the model warning in the installation plan / 请先确认安装计划中的机型警告')
+            actual = dict(self.ctx.record['device'], model=model, board=board,
+                          model_mismatch=warning)
+            require_approval(self.ctx.record, actual)
+
+    def confirm_update_profile(self, profile):
+        if not self.ctx:
+            raise ValueError('Review the model warning in the update plan / 请先确认更新计划中的机型警告')
+        actual = dict(self.ctx.record['device'], profile=profile, model=profile.upper(),
+                      model_mismatch=runtime_warning(self.package['profile'], profile))
+        require_approval(self.ctx.record, actual)
 
     def console_input_unavailable(self, *_args, **_kwargs):
         raise RecoveryRequired('A required GUI option is missing; console input is unavailable / 缺少必要的图形界面参数，已停止；请返回安装计划检查选项')
@@ -260,7 +277,8 @@ class Adapter:
         if entry['state'] != 'device':
             return {'serial': serial, 'readiness': 'debug_authorization' if entry['state'] == 'unauthorized' else 'android_boot'}
         properties = self.adb.properties()
-        device = {'serial': serial, 'model': properties['ro.product.model'], 'system': 'Android',
+        device = {'serial': serial, 'model': properties['ro.product.model'],
+                  'board': properties['ro.product.device'], 'system': 'Android',
                   'slot': properties['ro.boot.slot_suffix'], 'root': False, 'readiness': 'android_boot'}
         device['boot_id'] = self.adb.shell('cat /proc/sys/kernel/random/boot_id').strip()
         if properties['sys.boot_completed'] != '1':
@@ -276,23 +294,16 @@ class Adapter:
         if self.kind == 'e5':
             self.legacy.SU = self.adb.su
             profile = self.legacy.package_profile()
-            if device['model'] not in profile['android_models']:
-                raise ValueError('Package model differs / 安装包机型不匹配: ' + device['model'])
+            warning = android_warning(profile, device['model'], device['board'])
+            if warning:
+                device['model_mismatch'] = warning
             device['profile'] = profile['profile']
-            if profile['profile']=='k1' and properties['ro.product.device']!='ums9157_2h10':
-                raise ValueError('Wrong K1 board / K1 硬件标识不匹配')
-            if profile['profile']=='yuanhang41s' and properties['ro.product.device']!='P720S11':
-                raise ValueError('Wrong 41S board / 远航 41S 硬件标识不匹配')
-            if profile['profile']=='lym10k' and properties['ro.product.device']!='RY5G':
-                raise ValueError('Wrong LYM-10K board / LYM-10K 硬件标识不匹配')
             if device['slot'] not in ('_a', '_b'):
                 raise ValueError('Android slot unavailable / 无法识别 Android 槽位')
             self.legacy.ANDROID_SLOT = device['slot'][1:]
             self.legacy.LINUX_SLOT = 'b' if device['slot'] == '_a' else 'a'
         else:
             device['profile'] = self.legacy.android_profile(device['model'] + '\n' + properties['ro.product.device'], properties['ro.board.platform'])
-        if device.get('profile') == 'changxing60' and properties['ro.product.device'] != 'P720S20':
-            raise ValueError('Wrong Changxing60 board / 畅行60硬件标识不匹配')
         # Trial boot uses only the boot signature, boot-chain check and misc.
         # Do not access the root filesystem to detect an installation.
         script = storage_io.inventory_script(self.root)
@@ -338,6 +349,8 @@ class Adapter:
                                      'sectors': device['tf_bytes']//512,
                                      'start': self.adb.shell('cat /sys/class/block/'+target.rsplit('/',1)[-1]+'/start 2>/dev/null || echo 0', root=True).strip()}
             storage['TF'] = target
+        if self.ctx:
+            require_approval(self.ctx.record, device)
         return device
 
     def read_gpt(self, storage):

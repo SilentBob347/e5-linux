@@ -11,7 +11,7 @@ part_update_pending() {
     [ ! -e /run/tf-update-conflict ] || return 1
     [ -s /run/part-update-pending ] || return 0
     local dev= node disk mp=/part-update-old ram=/run/part-update
-    local KIND=part VERSION= CID= ROOT_BYTES= RAW_BYTES= RAW_SHA256= PROFILE= NV_POLICY=preserve kv actual want got producer writer rc1 rc2
+    local KIND=part VERSION= CID= ROOT_BYTES= RAW_BYTES= RAW_SHA256= PROFILE= SOURCE_PROFILE= NV_POLICY=preserve kv actual want got producer writer rc1 rc2
     dev=$(cat /run/part-update-pending)
     node=${dev##*/}
     mkdir -p "$mp"
@@ -27,6 +27,7 @@ part_update_pending() {
             VERSION=*) VERSION=${kv#*=} ;; CID=*) CID=${kv#*=} ;;
             ROOT_BYTES=*) ROOT_BYTES=${kv#*=} ;; RAW_BYTES=*) RAW_BYTES=${kv#*=} ;;
             RAW_SHA256=*) RAW_SHA256=${kv#*=} ;; PROFILE=*) PROFILE=${kv#*=} ;;
+            SOURCE_PROFILE=*) SOURCE_PROFILE=${kv#*=} ;;
             NV_POLICY=original) NV_POLICY=original ;;
             *) umount "$mp"; part_fail 'unknown update request field'; return 1 ;;
         esac
@@ -38,9 +39,11 @@ part_update_pending() {
     esac
     case "$ROOT_BYTES:$RAW_BYTES" in *[!0-9:]*|:*|*:) umount "$mp"; part_fail 'invalid update size'; return 1 ;; esac
     case "$RAW_SHA256" in *[!0-9a-f]*|'') umount "$mp"; part_fail 'invalid image hash'; return 1 ;; esac
+    SOURCE_PROFILE=${SOURCE_PROFILE:-$PROFILE}
+    case "$SOURCE_PROFILE:$PROFILE" in *[!a-z0-9:-]*|:*|*:) umount "$mp"; part_fail 'invalid profile metadata'; return 1 ;; esac
     if [ "$VERSION" != 1 ] || [ "$CID" != "$(storage_update_id "$disk")" ] ||
        [ "$ROOT_BYTES" != "$(blockdev --getsize64 "$dev")" ] ||
-       [ "$PROFILE" != "$(cat "$mp/etc/e5/device-profile")" ] ||
+       [ "$SOURCE_PROFILE" != "$(cat "$mp/etc/e5/device-profile")" ] ||
        [ ! -f "$mp/etc/e5/$KIND-root" ] || [ "$RAW_BYTES" -le 0 ] || [ "$RAW_BYTES" -gt "$ROOT_BYTES" ]; then
         umount "$mp"; part_fail 'update device/geometry verification'; return 1
     fi

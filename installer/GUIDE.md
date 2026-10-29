@@ -8,6 +8,10 @@
 
 E5 系列不要求预先解锁 BL；仍需允许 ADB 调试并取得 root 权限。
 
+E5 安装器检测到型号或板号不匹配时会展示机型差异。确定硬件兼容且仍要使用该包，
+可在弹窗输入小写 `yes` 继续，再确认最终安装计划；取消不会写入设备。
+屏幕、充电及启动可能不兼容；该选择不跳过分区、容量、载荷或 NV 校验。
+
 MU300 系列在 Windows 通过有线 ADB 检查设备时，安装器会自动禁用该设备的 MTP 文件传输接口并显示通知，以避开原厂 USB 冲突。ADB、USB 网卡和串口保持启用，MTP 不会自动恢复。禁用失败只提示，不中断安装。无额外安装器确认步骤；Windows 可能请求管理权限。无线 ADB、macOS 和 E5 系列跳过处理。
 
 只有无线 ADB 时，先将电脑连接到设备所在网络，展开设备选择区的“无线 ADB 连接”，填写 `192.168.0.1` 并点击“连接”。地址或端口不同请填写实际值，例如 `192.168.0.1:5555`。设备需已开启无线 ADB；Android 要求配对时，先按设备提示完成配对。
@@ -153,6 +157,11 @@ Extract the complete package and run **OpenWrt-Installer.exe** at its root. Keep
 Back up important files, check that the package matches your model and keep the device powered. Enable USB debugging in Android, authorize this computer and have Magisk/root ready.
 
 E5-family installation does not require prior bootloader unlocking. Authorized ADB debugging and root access are still required.
+
+If an E5 package differs from the detected model or board, the installer shows
+both identities. Type lowercase `yes` to continue with that package, then review
+and confirm the final plan. Canceling writes nothing. Display, charging or boot
+may be incompatible; partition, capacity, payload and NV checks still run.
 
 For MU300-series devices checked over wired ADB on Windows, the installer automatically disables only that device's MTP interface and displays a notification, avoiding the stock USB conflict. ADB, USB networking and serial interfaces stay enabled; MTP is not re-enabled. Failure only shows a warning and does not interrupt installation. There is no extra installer confirmation; Windows may request administrator permission. Wireless ADB, macOS and the E5 adapter skip this workaround.
 

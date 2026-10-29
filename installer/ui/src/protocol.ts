@@ -3,11 +3,14 @@ import { listen } from '@tauri-apps/api/event';
 export interface Device {serial: string; model?: string; label?: string; state?: string; wireless?: boolean; system?: string; slot?: string; root?: boolean; readiness?: string; encrypted?: boolean; existing?: boolean; tf?: string; profile?: string; free_bytes?: number; userdata_bytes?: number}
 export interface AdbConnection {endpoint: string; state?: string; devices: Device[]}
 export interface Package {path: string; name: string; adapter: string; profile: string; kernel: string; release_version?: string}
-export interface ResetPrompt {confirmation_required: 'format_android'; reason: string; reset_token: string; model: string; serial_hint: string}
+export interface ResetPrompt {confirmation_required: 'format_android'; reason: string; reset_token: string; model: string; serial_hint: string; model_token?:string}
+export interface ModelPrompt {confirmation_required: 'model_mismatch'; model_token: string; serial_hint: string;
+  warning: {expected_profile:string; expected_models:string[]; expected_board?:string|null; actual_model:string; actual_board?:string|null}}
 export interface Transaction {
   id: string; status: string; stage: string; device: Device; package: Package;
   choices: {method: string; host?: string}; plan: {wipe: boolean; data_action?: string; preservation_error?: string; layout_source?: 'original_record' | 'device'; released_unallocated_bytes?: number; shrink_strategy?: string; online_unavailable?: string; two_stage: boolean; offline?: boolean; openwrt_bytes: number; android_bytes?: number; previous_android_bytes?: number; reclaimed_bytes?: number; target: string; grow?: boolean; experimental?: boolean; gap_start?: number};
   online_fallback?: {state:'awaiting'|'confirmed'; nonce:string; reason:string};
+  model_override?: {confirmation:'yes'; confirmed_at:number};
   nv_recovery?: {state:'awaiting'|'confirmed'; nonce:string; reason:string};
   uninstall_armed?: boolean; completed: string[]; unsafe: boolean; updated: number; revision?: number;
   stage_started_at?: number; stage_finished_at?: number;

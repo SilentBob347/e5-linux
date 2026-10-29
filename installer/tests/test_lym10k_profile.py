@@ -49,10 +49,12 @@ class LYM10K(unittest.TestCase):
                     self.assertEqual(plan['two_stage'], encrypted)
                     self.assertEqual(plan['wipe'], encrypted)
 
-    def test_wrong_model_board_and_unknown_slot_stop_before_partition_reads(self):
-        for args, message in (({'model': 'VIPME M8'}, '机型'),
-                              ({'board': 'ums9158_1h10'}, 'LYM-10K'),
-                              ({'slot': ''}, '槽位')):
+    def test_model_board_warn_but_unknown_slot_still_stops(self):
+        for args in ({'model': 'VIPME M8'}, {'board': 'ums9158_1h10'}):
+            adapter = self.adapter(**args)
+            self.assertIn('model_mismatch', adapter.probe(routing.SERIAL, 'part'))
+            self.assertFalse(any(' of=' in command for command in adapter.adb.commands))
+        for args, message in (({'slot': ''}, '槽位'),):
             with self.subTest(args=args):
                 adapter = self.adapter(**args)
                 with self.assertRaisesRegex(ValueError, message):
@@ -83,9 +85,13 @@ class LYM10K(unittest.TestCase):
                 su.assert_called_once_with(f'[ -e /dev/block/by-name/boot_{linux} ] && [ -e /dev/block/by-name/l_agdsp_{slot[1:]} ] && echo ok')
                 properties['ro.product.device'] = 'wrong-board'
                 su.reset_mock()
-                with self.assertRaisesRegex(ValueError, 'Wrong LYM-10K board'):
-                    checks()
+                with patch.dict(checks.__globals__, ask=Mock(return_value='no')):
+                    with self.assertRaisesRegex(ValueError, 'Model exception declined'):
+                        checks()
                 su.assert_not_called()
+                with patch.dict(checks.__globals__, ask=Mock(return_value='yes')):
+                    checks()
+                su.assert_called_once()
 
     def test_package_identity_allows_moving_and_rejects_m8_manifest(self):
         with tempfile.TemporaryDirectory() as directory:

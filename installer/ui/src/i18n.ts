@@ -1,5 +1,8 @@
 export const strings = {
   zh: {
+    modelApproved:'已确认使用不匹配机型的安装包', modelMismatch:'安装包与设备机型不匹配', modelMismatchDesc:'可以继续使用此包；请先核对下面的机型并明确确认。',
+    modelPackage:'安装包机型：', modelDetected:'检测到设备：', modelRisk:'屏幕、触摸、充电或启动可能不兼容。此确认只适用于当前设备、安装包和操作；分区及数据校验仍会执行。',
+    modelYes:'输入小写 yes 后继续', modelContinue:'仍使用此安装包', modelCancel:'返回选择安装包',
     nvRecovery:'是否改用本机原始 NV？', nvRecoveryDesc:'工作 NV 无法保留。继续会放弃 OpenWrt 中的 NV 修改，使用本机 Android 使用的原始 NV；不会改写原始分区。安装进度会自动保存，无需手动导出。',
     nvRecoveryYes:'输入 yes 后继续', nvRecoveryCancel:'暂不继续', nvRecoveryWaiting:'等待确认 NV 恢复方式；尚未覆盖系统。',
 
@@ -73,6 +76,9 @@ export const strings = {
     noBackend:'安装器启动失败。请完整解压安装包，再运行 OpenWrt-Installer.exe。', error:'操作未完成', elapsed:'阶段用时', bytes:'已传输', speed:'速度', packageHint:'请完整解压安装包；载荷校验通过后才能操作设备。',
   },
   en: {
+    modelApproved:'Model exception confirmed for this package', modelMismatch:'Package and device models differ', modelMismatchDesc:'You may continue with this package. Check the models below before confirming.',
+    modelPackage:'Package model:', modelDetected:'Detected device:', modelRisk:'Display, touch, charging or boot may be incompatible. This exception applies only to this device, package and operation; partition and data checks still run.',
+    modelYes:'Type lowercase yes to continue', modelContinue:'Use this package anyway', modelCancel:'Choose another package',
     nvRecovery:'Use this device’s original NV?', nvRecoveryDesc:'The working NV could not be preserved. Continuing discards OpenWrt NV changes and uses this device’s original Android NV. Original partitions are not modified. Progress is saved automatically.',
     nvRecoveryYes:'Type yes to continue', nvRecoveryCancel:'Not now', nvRecoveryWaiting:'Awaiting your NV recovery choice; the system has not been overwritten.',
 

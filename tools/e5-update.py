@@ -195,7 +195,18 @@ def main():
     if GUI: GUI.validate_ssh(client)
     stage = None
     try:
-        execute(client, '[ "$(id -u)" = 0 ] && [ "$(cat /etc/e5/device-profile)" = ' + shlex.quote(profile) + ' ]')
+        execute(client, '[ "$(id -u)" = 0 ]')
+        source_profile = execute(client, 'cat /etc/e5/device-profile').strip()
+        if not re.fullmatch(r'[a-z][a-z0-9-]{0,40}', source_profile):
+            raise ValueError('Cannot read the installed profile / 无法读取已安装系统的机型标识')
+        if source_profile != profile:
+            if GUI:
+                GUI.confirm_update_profile(source_profile)
+            else:
+                print('Model mismatch / 机型不匹配: ' + source_profile + ' -> ' + profile)
+                print('Display, charging or boot may be incompatible. / 屏幕、充电或启动可能不兼容。')
+                if input('Type yes to use this package anyway / 输入 yes 仍使用此安装包: ').strip() != 'yes':
+                    raise ValueError('Model exception declined; nothing staged / 未确认机型例外，尚未上传更新')
         # Detection and capacity checks precede uploads and all boot writes.
         layout = execute(client, 'if [ -f /etc/e5/part-root ]; then echo part; '
             'elif [ -f /etc/e5/sd-root ]; then echo sd; else echo image; fi').strip()
@@ -239,7 +250,7 @@ def main():
                          'device-flash-boot.sh', 'device-stage-part-update.sh', 'e5-gpt', 'storage.sh', 'nv-persistence.py'):
                 upload(client, files / name, stage + '/' + name)
             upload(client, head, stage + '/boot-head.img')
-            nv_backup = save_nv_backup(client, stage, profile, compress=layout in ('part', 'sd'))
+            nv_backup = save_nv_backup(client, stage, source_profile, compress=layout in ('part', 'sd'))
             nv_policy = json.loads((nv_backup.parent/'backup.json').read_text())['policy'] if nv_backup else 'preserve'
             command = ('umask 077; mkdir -p /run/e5-upgrade; '
                 '[ ! -L /run/e5-upgrade ] && [ "$(stat -c %u:%a /run/e5-upgrade)" = 0:700 ]; '
@@ -247,7 +258,9 @@ def main():
                 'flock -n 8 || { echo "another upgrade is running"; exit 1; }; '
                 'export E5_UPGRADE_LOCK_HELD=1; ' +
                 capacity_env + 'E5_NV_POLICY='+nv_policy+' E5_IMAGE_SIZE=' + str(a.raw_size) + ' E5_IMAGE_SHA256=' + shlex.quote(a.raw_sha256) +
-                ' E5_UPDATE_PROFILE=' + shlex.quote(profile) + ' sh ' + stage + '/device-stage-part-update.sh ' + stage)
+                ' E5_UPDATE_PROFILE=' + shlex.quote(profile) +
+                ' E5_UPDATE_SOURCE_PROFILE=' + shlex.quote(source_profile) +
+                ' sh ' + stage + '/device-stage-part-update.sh ' + stage)
             command += '; sh ' + stage + '/device-flash-boot.sh ' + stage + '/boot-head.img ' + \
                     hashlib.sha256(head.read_bytes()).hexdigest() + ' ' + str(boot['persist_log_offset'] >> 20)
             # Publish an internal update request only after boot readback passes.
