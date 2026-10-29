@@ -203,11 +203,12 @@ class Adb:
             process.communicate(timeout=5)
 
     def backup_partition(self, name, destination, context):
-        if not re.fullmatch(r'(misc|(?:boot|uboot|sml|teecfg|trustos|vbmeta)_[ab])',name):
+        if not re.fullmatch(r'(misc|metadata|(?:boot|uboot|sml|teecfg|trustos|vbmeta|dtbo|vendor_boot)_[ab])',name):
             raise ValueError('Unsupported backup partition')
         source='/dev/block/by-name/'+name
         total=4096 if name=='misc' else int(self.shell('blockdev --getsize64 '+source,root=True).strip())
         if total<=0:raise ValueError('Invalid backup partition size: '+name)
+        if name=='metadata' and total>256<<20:raise ValueError('Unexpected metadata partition size')
         remote=self._backup_directory(context,total)+'/'+name+'.img'
         local=Path(str(destination)+'.partial')
         context.log(f'Backing up {name}: {total} bytes; device dd -> adb pull',scope='backup')
@@ -250,7 +251,12 @@ class Adb:
 
 
 def push_chunks(adb_call, shell, local, remote, context):
-    """Actual acknowledged bytes, checksum at destination, no terminal parsing."""
+    """Verified staging transfer, with optional transaction progress/cancellation.
+
+    Device discovery also stages the read-only UFS identity executable before a
+    transaction exists. Partition writes remain gated by Adapter.action(); this
+    transport only copies files and must not require an installation context.
+    """
     import tempfile
     total = Path(local).stat().st_size
     since = time.monotonic()
@@ -259,7 +265,8 @@ def push_chunks(adb_call, shell, local, remote, context):
     with open(local, 'rb') as stream, tempfile.TemporaryDirectory() as temp:
         chunk_path = Path(temp) / 'chunk'
         while chunk := stream.read(8 << 20):
-            context.boundary()
+            if context is not None:
+                context.boundary()
             chunk_path.write_bytes(chunk)
             part = remote + '.upload-chunk'
             adb_call('push', str(chunk_path), part)
@@ -267,7 +274,8 @@ def push_chunks(adb_call, shell, local, remote, context):
                 raise ValueError('Transfer chunk checksum failed / 传输块校验失败')
             shell('cat ' + shlex.quote(part) + ' >> ' + shlex.quote(remote) + ' && rm -f ' + shlex.quote(part))
             done += len(chunk)
-            context.transfer(Path(local).name, done, total, since)
+            if context is not None:
+                context.transfer(Path(local).name, done, total, since)
     if shell('sha256sum ' + shlex.quote(remote)).split()[0] != sha(local):
         raise ValueError('Transfer checksum failed / 传输校验失败')
     return remote

@@ -22,6 +22,7 @@ def enrich_audio(adb, destination):
     target = destination / 'device-files.tar'
     with tarfile.open(target, 'a') as archive:
         for source, name in (
+                ('/odm/etc/audio_config.xml', 'audio_config.xml'),
                 ('/odm/etc/audio_route.xml', 'audio_route.xml'),
                 ('/odm/etc/audio_params/sprd/audio_pga.xml', 'audio_pga.xml')):
             local = destination / 'raw' / name

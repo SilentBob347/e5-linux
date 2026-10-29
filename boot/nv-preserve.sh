@@ -63,7 +63,7 @@ nv_migrate_images() {
         read signature profile cid < /nv-new/etc/e5/nv-update-original
         if [ "$signature" = NV-ORIGINAL-RECOVERY-V1 ] &&
            [ "$profile" = "$(cat /nv-new/etc/e5/device-profile)" ] &&
-           [ "$cid" = "$(cat /sys/class/block/mmcblk0/device/cid)" ] &&
+           [ "$cid" = "$(e5_storage_identity "$(e5_storage_disk)")" ] &&
            nv_python_offline /nv-new verify; then
             result=0
         else result=1; fi

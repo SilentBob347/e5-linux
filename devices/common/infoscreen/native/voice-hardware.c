@@ -70,8 +70,9 @@ struct VoiceHardware {
     GHashTable *elements;
     Json *routes, *saved, *gains, *board;
     GPtrArray *controls;
-    guint16 curves[256][7];
-    unsigned curve_count;
+    guint16 curves[256][15];
+    unsigned curve_count, volume_steps;
+    int dac_gain[256];
     bool active, speaker, bluetooth, muted, remote, shared, aol;
     int card, device, call_card, band, rate, volume, ceiling;
     int applied_step, applied_gain, applied_mute;
@@ -360,17 +361,17 @@ static int dsp_volume(VoiceHardware *h) {
         return 1;
     double level = h->speaker ? h->volume : 1 + (h->volume - 1) * (h->ceiling - 1) / 14.0;
     if (level == 15)
-        return 7;
+        return h->volume_steps;
     unsigned mode = audio_profile_word(h->band, h->speaker, false) >> 24;
     guint16 *gains = h->curves[mode];
-    double low = INFINITY, high = log(gains[6]);
-    for (unsigned i = 0; i < 7; i++)
-        if (gains[i] && gains[i] <= gains[6])
+    double low = INFINITY, high = log(gains[h->volume_steps - 1]);
+    for (unsigned i = 0; i < h->volume_steps; i++)
+        if (gains[i] && gains[i] <= gains[h->volume_steps - 1])
             low = MIN(low, log(gains[i]));
     double target = low + (high - low) * (level - 1) / 14, best = INFINITY;
     int step = 1;
-    for (unsigned i = 0; i < 7; i++)
-        if (gains[i] && gains[i] <= gains[6]) {
+    for (unsigned i = 0; i < h->volume_steps; i++)
+        if (gains[i] && gains[i] <= gains[h->volume_steps - 1]) {
             double distance = fabs(log(gains[i]) - target);
             if (distance < best) {
                 best = distance;
@@ -380,8 +381,10 @@ static int dsp_volume(VoiceHardware *h) {
     return step;
 }
 static bool volume(VoiceHardware *h, bool force, GError **error) {
+    unsigned mode = audio_profile_word(h->band, h->speaker, false) >> 24;
+    int maximum = h->bluetooth ? 24 : h->dac_gain[mode];
     int step = dsp_volume(h), effective = h->bluetooth && !h->remote ? h->volume : 15,
-        gain = effective ? 24 - (15 - effective) : 0, mute = !h->volume;
+        gain = effective ? maximum - (15 - effective) : 0, mute = !h->volume;
     if ((force || h->applied_step != step) && !puti(h, "VBC_VOLUME", step, error))
         return false;
     if (force || h->applied_gain != gain) {
@@ -763,6 +766,36 @@ static bool parse_xml(const char *path, Xml *x, GError **error) {
     g_free(data);
     return ok;
 }
+static bool volume_config(VoiceHardware *h, GError **error) {
+    /* Existing recipients retain seven DSP steps and the established gain.
+     * Additional steps/gains must be supplied by a recipient firmware stage. */
+    h->volume_steps = 7;
+    for (unsigned i = 0; i < G_N_ELEMENTS(h->dac_gain); i++)
+        h->dac_gain[i] = 24;
+    Json *config = jget(h->routes, "VOICE_VOLUME");
+    if (!config)
+        return true;
+    Json *steps = jget(config, "steps"), *gains = jget(config, "dac_gain");
+    if (!json_object_is_type(config, json_type_object) ||
+        !json_object_is_type(steps, json_type_int) ||
+        !json_object_is_type(gains, json_type_object))
+        return fail(error, "Invalid recipient voice volume configuration");
+    int n = json_object_get_int(steps);
+    if (n < 1 || n > 15)
+        return fail(error, "Invalid recipient voice volume step count");
+    static const unsigned modes[] = {0, 2, 4, 5, 7, 9, 11, 12};
+    for (unsigned i = 0; i < G_N_ELEMENTS(modes); i++) {
+        char key[16];
+        snprintf(key, sizeof(key), "%u", modes[i]);
+        Json *value = jget(gains, key);
+        if (!json_object_is_type(value, json_type_int) ||
+            json_object_get_int(value) < 14 || json_object_get_int(value) > 127)
+            return fail(error, "Invalid recipient voice digital gain");
+        h->dac_gain[modes[i]] = json_object_get_int(value);
+    }
+    h->volume_steps = n;
+    return true;
+}
 static bool curves(VoiceHardware *h, GError **error) {
     gsize size = 0;
     char *data = read_bytes("/lib/firmware/audio_structure", 4 * 1024 * 1024, &size);
@@ -833,14 +866,14 @@ static bool curves(VoiceHardware *h, GError **error) {
     }
     h->curve_count = count;
     for (unsigned mode = 0; mode < count; mode++)
-        for (unsigned i = 0; i < 7; i++) {
+        for (unsigned i = 0; i < h->volume_steps; i++) {
             guint16 value;
             memcpy(&value, data + 24 + mode * record + 0x244 + 2 * i, 2);
             h->curves[mode][i] = GUINT16_FROM_LE(value);
         }
     static const unsigned modes[] = {0, 2, 4, 5, 7, 9, 11, 12};
     for (unsigned i = 0; i < G_N_ELEMENTS(modes); i++)
-        if (modes[i] >= count || !h->curves[modes[i]][6]) {
+        if (modes[i] >= count || !h->curves[modes[i]][h->volume_steps - 1]) {
             fail(error, "Required recipient voice gain table unavailable");
             goto out;
         }
@@ -868,6 +901,8 @@ VoiceHardware *audio_new(GError **error) {
         fail(error, "Native voice route manifest missing");
         goto failed;
     }
+    if (!volume_config(h, error))
+        goto failed;
     char *cards = read_text("/proc/asound/cards", 65536),
          *pcms = read_text("/proc/asound/pcm", 65536);
     if (!cards || !strstr(cards, "sprdphone-sc2730") || !pcms) {

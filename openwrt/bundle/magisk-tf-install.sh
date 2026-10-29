@@ -27,6 +27,7 @@ preflight() {
     case "${PROFILE:-}" in
         yuanhang41s) [ "$(getprop ro.product.device)" = P720S11 ] || fail 'unknown 41S board' ;;
         k1) [ "$(getprop ro.product.device)" = ums9157_2h10 ] || fail 'unknown K1 board' ;;
+        changxing60) [ "$(getprop ro.product.device)" = P720S20 ] || fail 'unknown Changxing60 board' ;;
         lym10k) [ "$(getprop ro.product.device)" = RY5G ] || fail 'unknown LYM-10K board' ;;
     esac
     [ -s "$P/files/ext4-tools.tar" ] || fail 'missing bundled ext4 tools'
@@ -49,7 +50,7 @@ preflight() {
     for sysdev in /sys/class/block/mmcblk*; do
         node=${sysdev##*/}
         echo "$node" | grep -Eq '^mmcblk[0-9]+$' || continue
-        [ "$node" != "$emmc" ] || continue
+        [ "$(cat "$sysdev/device/type" 2>/dev/null)" = SD ] || continue
         [ -b "/dev/block/$node" ] && cards="$cards $node"
     done
     set -- $cards
@@ -88,6 +89,10 @@ prepare_firmware() {
         done
         cp /odm/etc/audio_route.xml "$raw/"
         cp /odm/etc/audio_params/sprd/audio_pga.xml "$raw/"
+    fi
+    if [ "$PROFILE" = changxing60 ]; then
+        cp /odm/etc/audio_config.xml /odm/etc/audio_route.xml /odm/etc/audio_params/sprd/audio_pga.xml "$raw/"
+        cp /vendor/firmware/axs_firmware_easyquick.bin "$raw/"
     fi
     cp /mnt/vendor/btmac.txt "$raw/"
     cp /odm/firmware/wifi_board_config*.ini "$raw/"

@@ -28,14 +28,13 @@ DISABLED = {
 
 
 def full_network_defaults():
-    """Use the normal network/APN/IPv6/firewall setup, with only lab addressing.
+    """Use normal addressing/network/APN/IPv6/firewall with a lab PC tag.
 
     The original tiny probe pool is for the development PC only. A full trial
     needs normal hotspot leases and LAN routing, including the shared /64
     extension. Suppress IPv4 router/DNS options only for this USB host's tag.
     """
     source = (TOP/'openwrt/overlay/etc/uci-defaults/90-e5').read_text()
-    source = source.replace('192.168.9.', '192.168.92.')
     source = source.replace("hostname='E5'", "hostname='Changxing-60'")
     source = source.replace('02:50:00:00:e5:02', '02:50:00:00:60:02')
     anchor = "set dhcp.usb_host.tag='usbhost'\n"

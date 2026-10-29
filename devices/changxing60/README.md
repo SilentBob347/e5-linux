@@ -1,7 +1,9 @@
 # 畅行 60 / ZTE 7552N（P720S20）适配记录
 
-更新：2026-10-29。分支 `feat/changxing60-bringup`。目前已启动完整 RAM OpenWrt，
-原始 UFS/NV 保持只读；功能适配、硬件验收与正式安装支持分开记录，尚不是正式安装包。
+更新：2026-10-29。分支 `feat/changxing60-bringup`。已启动完整 RAM OpenWrt，
+已补齐正式安装源码与打包入口。另经用户授权，在原厂Android内完成加密F2FS保数据在线缩容，
+留出64 GiB未分配空间并通过重启核验；没有安装OpenWrt或写NV。
+功能适配、构建、在线缩容与正式安装硬件验收分开记录。
 
 ## 已核对的原厂输入
 
@@ -9,11 +11,15 @@
 - 内核 `5.4.254-android12-9-g619997ff2210`，平台 T760 / UMS9620-AB。
 - 当前 Android **B**，诊断 **A**；工具从当次采集的实际槽位推导，不把这个关系作为通用默认。
 - UFS YMTC `YMUS8A1TC2A2C1`，约 119.172 GiB，用户 LUN `sda`，4096 字节逻辑块，76 个分区。GPT 没有可直接安装的大块未分配空间。
-- userdata 为 F2FS、FBE＋metadata 加密，Android 挂载 `dm-39`。**未获清空/缩容授权，不执行安装或格式化。**
+- userdata 为 F2FS、FBE＋metadata 加密，Android 挂载 `dm-39`。2026-10-29已获保数据缩容授权，
+  Android保留约46.66 GiB、腾出64 GiB空闲区；没有清空授权，也未执行格式化。
 - 显示 480×854、两条 DSI lane，原厂选择 `lcd_easyquick_aixiesheng_boe_mipi_hd`；偏压 TI65132B。
 - 触摸 SPI AXS15205，音频 AW87xxx，充电器 `ti,bq2560x_chg`、I2C 0x6b、实读芯片 ID 0x14。不能套用 41S 的 ST7123/AW883xx/0x1a 充电器，或 T551M 的 A6 编码。
 
 本机 DT、配置、原厂驱动/固件、BSP 与启动镜像、少量 GPT 摘要等保存在私有 `dumps/changxing60-stock/`。不提交设备序列号、原始 NV 或 IMEI。
+
+在线缩容的布局、备份、重启核验及安装器只读计划见
+[2026-10-29实测记录](../../docs/CHANGXING60-ONLINE-SHRINK-20261029.zh-CN.md)。
 GPL 参考取自已有 `mu300-kernel` 缓存的 ZTE U30 Air 源码 `b50db5b6224c11db42a246e8fcdaad1e1d59f478`，与实机 build ID 不同；它只是协议/驱动参考，不能称为本机同版源码。
 
 ## 已编译及实机证据
@@ -139,11 +145,11 @@ USB 地址 192.168.92.1，DHCP 不发布网关或 DNS；临时无认证控制台
 - 所有安装/更新/重装/卸载路径的 UFS 接入、冻结安装器资源与正式打包。新 `storage.sh` / Python 库目前仅诊断调用，不代表老流程已能处理 UFS。
 - 正常写入、长时间运行、真实系统 suspend/resume。短时 GPT 读取成功不等于长期存储验收。
 
-本轮留在完整 RAM OpenWrt，USB 管理地址 `192.168.92.1`、root/root；
+本轮留在完整 RAM OpenWrt，USB 管理地址 `192.168.9.1`、root/root；
 热点 `Changxing60-OpenWrt`，实验密码 `cx60test2026`。
 只读存储的实验系统重启/掉电后仍回 Android；没有将该 RAM 配置当作用户正式安装。
-最近可重现载荷为 `out/changxing60/ram-full8-factory-voice.tar.gz`，配套
-`out/changxing60/probe/boot-r34-full.img` 和 bringup4 的完整模块。
+最近可重现载荷为 `out/changxing60/ram-full9-audio-fix.tar.gz`，配套
+`out/changxing60/probe/boot-r38-audio.img` 和本轮重新编译的完整模块。
 
 R37 首次回 Android 后，在尚未完成原厂 USB 组合切换时启动上传，ADB 短暂重新枚举。
 失败发生于已匹配备用分区的只读哈希检查，尚未写 trial misc；保留失败回执并删除该次
@@ -154,4 +160,73 @@ R37 首次回 Android 后，在尚未完成原厂 USB 组合切换时启动上�
 
 后续试启动继续使用原始备份、最新回执和当轮只读 BCAB 快照；不得覆写首次备份或假造默认 A 槽记录。关闭试验时应逐项恢复原备用槽并回读，而不是只改 misc 后声称已恢复原镜像。
 
+## 2026-10-29 用户首轮验收与 R38 修正
+
+用户确认：屏幕/热点可用、蜂窝正常、充电正常、蓝牙基本正常；电话听筒出声，
+免提和提示音无声，主机＋外部供电在实际扩展坞上未工作。此前控制项存在和能切换
+不是出声验收；这些失败项不能沿用离线通过结果标为已完成。
+
+音频现场：媒体选择 speaker sink、FE_ST_FAST 正常存在，Speaker Function=on，
+PA 却仍为 Off。本机原厂 DT 是 `extral-iic-pa=2`；移植 machine hook 的对应动态
+符号路径在 `#if 0` 内，实际落到未配置的普通 GPIO 控制。
+`audio-dapm.py` 仅在本机准备入口恢复链接的 AW87xxx 调用：媒体启动从 Off 进入
+Music，关闭时 Off；如语音已显式选择 Receiver，则保留该选择。没有加常驻轮询，
+也不把功放常开作为修复。C 测试实际执行该 hook，覆盖保留 Receiver、正常停机、
+硬件错误传播及非目标分支。R38 实机已读到准备播放后 Music、空闲后 Off。
+
+原厂 `audio_pcm.xml` 补采确认普通媒体对应 FE_ST_FAST；Android 的 device 数字与
+当前内核枚举不同，继续按真实 FE 名称映射，不直接照抄数字。完整原厂 codec IIS
+播放设置加入 UCM，包括原先遗漏的 `VBC_IIS_TX0_WD_SEL=WD_24BIT`。
+先前手动切 Receiver/Music 的低幅测试音均未听到，不能把缺少 PA 启动宣称为唯一根因。
+R38 随后用户复测确认：提示音和免提均正常出声；但最高音量偏小，
+用户认为原厂 Android 明显更大，音量问题与此前无声缺陷分别记录。
+
+R38 随后经本机主麦克风做一次 5 秒声学采样，只输出统计、不保留采样内容：
+550 Hz 测试音播放时该频率的幅度约 105，停止后约 0.3–0.8，未削顶。
+这支持媒体路径已有实际测试音输出；不代替用户对提示音听感和通话免提的验收。
+
+USB 在电脑供电下短时对照实际进入 host、boost=0、external=1，随后自动恢复原
+auto 策略与设备模式；该结果只证明软件切换路径，不代替扩展坞验收。
+尚未抓到用户扩展坞失败时的 CC/VBUS 状态，未据此修改充电识别或强制开启升压。
+用户随后使用实际带供电扩展坞确认：网口和充电均正常。该结果是实物验收，
+不是新增了一套 USB 兜底；本轮没有为此改动 USB/充电策略。
+
+完整 RAM 系统现在与其他 E5 家族一致使用 **192.168.9.1**，实验电脑保留 .9.2，
+只对该电脑隐藏网关/DNS；192.168.92.1 仅在交接前的 initramfs 诊断中出现。
+R38 已核对最终系统只有 br-lan 的 .9.1，没有残留 .92.1 别名；电脑已通过 DHCP
+取得 .9.2，默认路由仍为原 Wi-Fi。`check-ram.py` 默认管理地址也改为 .9.1。
+
+本轮配套 boot：`out/changxing60/probe/boot-r38-audio.img`，RAM 根：
+`out/changxing60/ram-full9-audio-fix.tar.gz`。Image/模块重新成套编译，
+原始启动控制与 R37 完全相同，Android、GPT、原机 NV 未格式化/写回。
+USB 角色后端离线回归通过；新增音频/网络测试通过，不把这些测试当作扩展坞或听音验收。
+
+### R38 后续通话音量热修正
+
+补采本机 `/odm/etc/audio_config.xml` 的 `voice_volume levels=10`；原生通话程序
+此前固定使用前 7 个 DSP 增益项，不能达到本机原厂第 10 项。当前采样固件
+Handset/NB1 的第 7/10 项分别为 917/4096。现在由机型 staging 从本机配置生成
+`voice-routes.json` 的可选 `VOICE_VOLUME`，同时从本机 `audio_pga.xml` 提取各路径
+PGA：NB/WB 听筒 25、免提 26，SWB/FB 均 24。不修改原厂校准文件或原机 NV。
+其他机型未提供该配置时仍使用原有 7 档/24，蓝牙路径继续使用原有 7 档。
+
+已仅在 RAM 中热替换本机路由清单和配套原生服务；读回校验与 observer/服务状态通过。
+4 项机型音频、1 项网络、1 项实际 C DAPM hook、8 项公共原生运行时测试通过，
+包含旧机型音量范围、10 档单调性、不同路径 PGA、静音及蓝牙隔离。
+用户决定保留当前版本，没有另行报告最高/最低通话档位的具体听感；不把此答复
+写成精确响度验收。媒体仍使用本机原厂 DG 33，未任意提高功放或 codec 增益，
+与 Android 实际播放响度的差异仍未完成定位。本轮专用 USB 事件采集已停止。
+
+上述通话音量变更已在源码和当前 RAM 系统生效，尚未重新制作 RAM 根归档；
+`ram-full9-audio-fix.tar.gz` 为热修正之前的 R38 归档。重启仍回 Android B。
+
 只读 UFS 身份工具的固定构建入口为 `tools/build-ufs-id.py`，仍须包在 `tools/build-release.py run` 中执行。输出路径由 `tools/build-layout.json` 登记，并生成源码/ELF/编译器回执。`tools/tests/ufs-id-read.py` 实际编译被测 C 函数，检查 READ-only 请求及错误、截断和损坏的响应；这不替代硬件验收。
+
+## 2026-10-29 正式安装接入
+
+公共安装器、4K GPT、UFS 身份、两阶段安装、更新／重装／卸载和正式打包入口已接入；详见 [正式安装说明](../../docs/CHANGXING60-INSTALL.zh-CN.md)。早期段落描述的是当时 RAM bring-up 的状态，不能作为当前安装支持列表。此次仅做源码、离线回归和构建，尚未执行物理分区安装验收。
+
+
+## 2026-10-29 正式启动验收补记
+
+用户已在释放的64 GiB空闲区完成安装。已补齐正式启动中的DPHY就绪检查、SPI控制器加载和根模块配套；正常重启后屏幕、AXS15205输入、声卡自动启动，用户确认触摸及息屏／亮屏均正常。上文“尚未正式安装”的描述为先前调查状态。详细测试与未验收边界见[安装与启动回归](../../docs/INSTALLER-FLOW-AUDIT-20261029.zh-CN.md)。

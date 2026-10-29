@@ -43,7 +43,7 @@ def image_capacity(client):
         return int(GUI.ctx.record['plan']['openwrt_bytes'])
     # Use raw SSH stdout, without requiring od/hexdump or SFTP on OpenWrt.
     dev = execute(client, "readlink -f $(awk '$2==\"/\" {print $1}' /proc/mounts | tail -1)").strip()
-    if not re.fullmatch(r'/dev/(?:block/)?(?:mmcblk\d+(?:p\d+)?|loop\d+)', dev):
+    if not re.fullmatch(r'/dev/(?:block/)?(?:mmcblk\d+(?:p\d+)?|sd[a-z]+[1-9][0-9]*|loop\d+)', dev):
         raise ValueError('Cannot identify the current image root')
     _, out, err = client.exec_command(f'dd if={dev} bs=1024 skip=1 count=1 2>/dev/null', timeout=15)
     raw = out.read()
@@ -236,7 +236,7 @@ def main():
             head = Path(temporary) / 'boot-head.img'
             head.write_bytes(image[:boot['persist_log_offset']])
             for name in ('openwrt.ext4.gz', 'ext4-tools.tar', 'device-install-image.sh',
-                         'device-flash-boot.sh', 'device-stage-part-update.sh', 'e5-gpt', 'nv-persistence.py'):
+                         'device-flash-boot.sh', 'device-stage-part-update.sh', 'e5-gpt', 'storage.sh', 'nv-persistence.py'):
                 upload(client, files / name, stage + '/' + name)
             upload(client, head, stage + '/boot-head.img')
             nv_backup = save_nv_backup(client, stage, profile, compress=layout in ('part', 'sd'))

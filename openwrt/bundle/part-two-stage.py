@@ -15,6 +15,13 @@ import time
 import uuid
 
 
+def storage_api():
+    helper = Path(__file__).with_name('storage-api.py')
+    if not helper.is_file():
+        helper = Path(__file__).resolve().parents[2] / 'installer/backend/storage.py'
+    return runpy.run_path(str(helper))
+
+
 def recovery_message_kind(raw):
     """Accept only an empty BCB or the exact bootloader-only command.
 
@@ -50,7 +57,7 @@ def clear_bootloader_command_script(raw, control):
 
 
 def boot_command(image, option):
-    if not re.fullmatch(r'e5\.(?:root=part|part_prepare=[0-9a-f]{32}:[0-9a-f]{32}:mmcblk[0-9]p[0-9]+:(?:[0-9]+:){4}[0-9a-f]{64})', option):
+    if not re.fullmatch(r'e5\.(?:root=part|part_prepare=[0-9a-f]{32}:[0-9a-f]{32}:(?:mmcblk[0-9]+p|sd[a-z]+)[1-9][0-9]*:(?:[0-9]+:){4}[0-9a-f]{64})', option):
         raise ValueError('invalid partition boot request')
     if len(image) < 1584 or image[:8] != b'ANDROID!' or struct.unpack_from('<I', image, 40)[0] != 4:
         raise ValueError('expected Android boot header v4')
@@ -90,6 +97,8 @@ def validate_state(state):
         raise ValueError('invalid transaction or unsupported state')
     if not re.fullmatch('[0-9a-f]{32}', state.get('token', '')):
         raise ValueError('invalid transaction token')
+    if 'prepared_token' in state and not re.fullmatch('[0-9a-f]{32}',state['prepared_token']):
+        raise ValueError('invalid original preparation token')
     if 'android_slot' in state or 'linux_slot' in state:
         if state.get('android_slot') not in ('a', 'b') or state.get('linux_slot') != ('b' if state['android_slot'] == 'a' else 'a'):
             raise ValueError('invalid transaction slot roles')
@@ -106,23 +115,27 @@ def validate_state(state):
 
 
 def probe(g):
-    raw = g['su_checked']('读取设备及分区身份 / reading device geometry',
-        'for u in /sys/class/block/mmcblk*p*/uevent; do '
-        'if grep -qx PARTNAME=userdata "$u" || grep -qx PARTNAME=e5root "$u"; then '
-        'n=$(basename "$(dirname "$u")"); d=${n%p*}; '
-        'printf "%s " "$n"; cat /sys/class/block/$d/device/cid | tr "\\n" " "; '
-        'cat /sys/class/block/$n/start /sys/class/block/$n/size | tr "\\n" " "; '
-        'grep ^PARTNAME= "$u"; fi; done')
+    script = g['storage_script']() + r"""
+set -e
+disk=$(e5_storage_disk)
+cid=$(e5_storage_identity "$disk")
+for name in userdata e5root; do
+    node=$(e5_storage_part "$name" "$disk") || continue
+    printf '%s %s %s %s PARTNAME=%s\n' "$node" "$cid" "$(cat /sys/class/block/$node/start)" "$(cat /sys/class/block/$node/size)" "$name"
+done
+"""
+    raw = g['su_checked']('读取设备及分区身份 / reading device geometry', script)
     rows = {}
     for line in raw.splitlines():
         fields = line.split()
         if len(fields) != 5:
             continue
         node, cid, start, size, name = fields
-        if not re.fullmatch(r'mmcblk\dp\d+', node) or not re.fullmatch('[0-9a-f]{32}', cid):
+        storage_api()['disk_node'](node)
+        if not re.fullmatch('[0-9a-f]{32}', cid):
             raise ValueError('unsupported device identity')
-        name = name.removeprefix('PARTNAME=') if hasattr(str, 'removeprefix') else name[9:]
-        if name in rows:
+        name = name.removeprefix('PARTNAME=')
+        if name not in ('userdata', 'e5root') or name in rows:
             raise ValueError('ambiguous partition name')
         rows[name] = dict(node=node, cid=cid, start=int(start), size=int(size))
     return rows
@@ -135,7 +148,7 @@ def verify_geometry(state, rows):
         data.get('start') != expected['start'] or data.get('size') != state['target'] or
         root.get('cid') != expected['cid'] or root.get('start') != state.get('root_start', expected['start'] + state['target']) or
         root.get('size') != state['need'] or
-        root.get('node', '').split('p')[0] != expected['node'].split('p')[0]):
+        re.sub(r'(?:p)?[0-9]+$', '', root.get('node', '')) != re.sub(r'(?:p)?[0-9]+$', '', expected['node'])):
         raise ValueError('device/partition geometry differs from the saved transaction; nothing written')
     return '/dev/block/' + root['node']
 
@@ -149,12 +162,22 @@ def backup(g, remote, local):
     g['su_checked']('清理临时备份 / cleanup', f'rm -f {temp}')
 
 
+def gpt_ranges(g, data):
+    disk = storage_api()['disk_node'](data['node'])
+    info = g['su_checked']('读取 GPT 几何 / reading GPT geometry',
+        f'cat /sys/class/block/{disk}/size /sys/class/block/{disk}/queue/logical_block_size').split()
+    sectors, block = map(int, info)
+    commands = storage_api()['gpt_header_commands']({'NODE':data['node'], 'SECTOR_SIZE':block, 'DISK_SIZE':sectors})
+    headers = [bytes.fromhex(g['su_checked']('校验 GPT 头 / checking GPT headers', command+' | od -An -tx1 -v')) for command in commands]
+    helper = Path(__file__).with_name('gpt-api.py')
+    if not helper.is_file(): helper = Path(__file__).resolve().parents[2] / 'installer/backend/gpt.py'
+    front, tail = runpy.run_path(str(helper))['gpt_backup_layout'](*headers, sectors)
+    return disk, sectors, [('gpt-primary.bin',0,front),('gpt-backup.bin',tail,sectors-tail)]
+
+
 def backup_gpt(g, data, directory):
-    disk = data['node'].split('p')[0]
-    sectors = int(g['su_checked']('读取磁盘容量 / disk capacity', f'cat /sys/class/block/{disk}/size').strip())
-    if sectors <= data['start'] + data['size']:
-        raise ValueError('invalid disk bounds')
-    for name, start, count in [('gpt-primary.bin', 0, 34), ('gpt-backup.bin', sectors-33, 33)]:
+    disk, sectors, ranges = gpt_ranges(g, data)
+    for name, start, count in ranges:
         remote = '/data/local/tmp/e5-gpt-backup'
         g['su_checked']('备份 GPT / backing up GPT',
             f'dd if=/dev/block/{disk} of={remote} bs=512 skip={start} count={count}; chmod 644 {remote}')
@@ -306,15 +329,11 @@ def retry_missing_request(g, a, path, state, rows):
         backup_file = directory/name
         if not backup_file.is_file() or (backup_file.stat().st_size != size if size is not None else not backup_file.stat().st_size):
             raise ValueError('Original boot backups missing or truncated; preparation not retried')
-    disk = state['data']['node'].split('p')[0]
-    sectors = int(g['su_checked']('复核磁盘容量 / checking disk bounds',
-                                f'cat /sys/class/block/{disk}/size').strip())
-    if sectors <= state['data']['start'] + state['data']['size']:
-        raise ValueError('Invalid disk bounds; preparation not retried')
+    disk, sectors, ranges = gpt_ranges(g, state['data'])
     # No new backup replaces the originals. adb pull uses a separate temporary
     # host directory; full byte equality includes every unrelated GPT entry.
     with __import__('tempfile').TemporaryDirectory() as work:
-        for name, start, count in [('gpt-primary.bin', 0, 34), ('gpt-backup.bin', sectors-33, 33)]:
+        for name, start, count in ranges:
             before = directory/name
             if not before.is_file() or before.stat().st_size != count*512:
                 raise ValueError('Original GPT backup missing or truncated; preparation not retried')
@@ -403,7 +422,7 @@ def reinstall(g, a):
     if 'e5root' not in rows or 'userdata' not in rows:
         raise ValueError('this device has no internal partition installation to rewrite')
     data, root = rows['userdata'], rows['e5root']
-    if data['node'].split('p')[0] != root['node'].split('p')[0]:
+    if storage_api()['disk_node'](data['node']) != storage_api()['disk_node'](root['node']):
         raise ValueError('userdata and e5root are not on the same disk')
     old = installed_settings(g)
     apn = a.apn or old.get('apn', '')
@@ -443,12 +462,82 @@ def reinstall(g, a):
     finish(g, a, path, state)
 
 
+def recover_free_slots(g, path, state):
+    """Repair the omitted roles of old GUI free-space records from PC evidence.
+
+    Never infer the original role from the currently booted slot. The host
+    transaction already persisted that role before committing the root GPT.
+    """
+    if 'android_slot' in state or 'linux_slot' in state or 'root_start' not in state:
+        return
+    context = getattr(g.get('GUI'), 'ctx', None)
+    record = getattr(context, 'record', {})
+    device = record.get('device', {})
+    storage = device.get('storage', {})
+    if (record.get('package', {}).get('adapter') != 'e5' or
+        record.get('choices', {}).get('method') != 'part' or
+        record.get('plan', {}).get('gap_start') != state['root_start'] or
+        record.get('effects', {}).get('gpt-free-space', {}).get('state') != 'done' or
+        not record.get('legacy') or Path(record['legacy']).resolve() != Path(path).resolve() or
+        device.get('slot') not in ('_a', '_b') or device.get('serial') != state.get('serial') or
+        device.get('cid') != state.get('data', {}).get('cid') or
+        any(storage.get(k) != state.get('data', {}).get(v) for k,v in
+            (('NODE','node'),('CID','cid'),('START','start'),('SIZE','size')))):
+        raise ValueError('Missing original slot evidence for free-space resume / 空闲区续装记录缺少原始槽位证据，不能猜测槽位')
+    android = device['slot'][1:]
+    state.update(android_slot=android, linux_slot='b' if android == 'a' else 'a')
+    save(Path(path), state)
+    g['GUI'].saved(path, state)
+
+
+def prepared_root_token(g, root, data):
+    """Recognize a never-written free-space root from its original PC proof.
+
+    A new reinstall transaction has a different token. Do not treat arbitrary
+    unreadable roots as empty, or accept an unbound marker alone as evidence.
+    """
+    gui = g.get('GUI')
+    context = getattr(gui,'ctx',None)
+    if not context or not getattr(context,'store',None): return None
+    raw = gui.read_legacy(__import__('types').SimpleNamespace(serial=g['SERIAL']),
+                          'dd if=/dev/block/'+root['node']+' bs=4096 count=2 2>/dev/null')
+    if len(raw) != 8192: raise ValueError('Incomplete prepared-root read')
+    marker = re.fullmatch(rb'E5-PART-PREPARED-V2 ([0-9a-f]{32})\n\x00*',raw[:512])
+    if not marker or raw[1080:1082] == b'\x53\xef' or raw[1024:1028] == bytes.fromhex('1020f5f2'):
+        return None
+    token = marker[1].decode('ascii')
+    for original in context.store.list():
+        device = original.get('device',{})
+        if (original.get('choices',{}).get('method') != 'part' or
+                original.get('package',{}).get('adapter') != 'e5' or
+                original.get('package',{}).get('profile') != g['package_profile']()['profile'] or
+                device.get('serial') != g['SERIAL'] or device.get('cid') != data['cid'] or
+                device.get('slot') != '_'+g['current_slots']()[0] or
+                original.get('effects',{}).get('gpt-free-space',{}).get('state') != 'done' or
+                original.get('plan',{}).get('gap_start') != root['start'] or
+                original.get('plan',{}).get('openwrt_bytes') != root['size']*512 or
+                not original.get('legacy')):
+            continue
+        try:
+            prior_path = Path(original['legacy']).resolve()
+            if not prior_path.is_relative_to(context.store.directory(original['id']).resolve()): continue
+            prior = json.loads(prior_path.read_text(encoding='utf-8'))
+        except (OSError,ValueError):
+            continue
+        if (prior.get('token') == token and prior.get('data') == data and
+                prior.get('root_start') == root['start'] and prior.get('need') == root['size'] and
+                prior.get('phase') in ('awaiting-android','writing')):
+            return token
+    return None
+
+
 def finish(g, a, path, state):
     if state.get('phase') == 'complete':
         # Resuming a finished transaction is a no-op, not a rewrite of the
         # partition: say so instead of failing validation on the terminal state.
         print(f'这个事务已经完成，不需要重跑：{path}')
         return
+    recover_free_slots(g, path, state)
     validate_state(state)
     files = Path(g['F'])
     android, linux = g['current_slots']()
@@ -466,6 +555,10 @@ def finish(g, a, path, state):
     if 'e5root' not in rows and rows.get('userdata') == state['data']:
         return retry_missing_request(g, a, path, state, rows)
     target = verify_geometry(state, rows)
+    if state['phase'] != 'installed' and 'prepared_token' not in state:
+        original_token = prepared_root_token(g,rows['e5root'],rows['userdata'])
+        if original_token:
+            state['prepared_token'] = original_token; save(path,state)
     # Android may have updated its boot chain since preparation or the first
     # install. Reinstall/resume needs the same size/BCAB/chain checks as TF.
     g['install_preflight']()
@@ -483,11 +576,16 @@ def finish(g, a, path, state):
             settings.write_bytes(("E5_APN='%s'\nE5_WIFI_SSID='%s'\nE5_WIFI_KEY='%s'\nE5_DEFAULT_BOOT='linux'\n" %
                                 (state['apn'], state['ssid'], state['key'])).encode('utf-8'))
             g['push'](str(settings), g['TMP']+'/e5-install.conf', 'settings')
+            library = Path(work)/'e5-storage.sh'
+            library.write_text(storage_api()['library'](),encoding='utf-8',newline='\n')
+            g['push'](str(library), g['TMP']+'/e5-storage.sh', 'storage topology')
             g['push'](str(files/'part-write.sh'), g['TMP']+'/e5-part-write.sh', 'partition installer')
             g['push'](str(files/'nv-persistence.py'), g['TMP']+'/e5-nv-persistence.py', 'NV preservation')
             state['phase'] = 'writing'; save(path, state)
             command = g['android_shell']('/data/local/tmp/e5-part-write.sh',
                        f'{target} {state["need"]} {state["raw_size"]} {int(state["grow"])} {state["token"]}')
+            if state.get('prepared_token'):
+                command = 'E5_PREPARED_TOKEN='+state['prepared_token']+' '+command
             try:
                 g['su_checked']('检查工作 NV / checking working NV', command+' --nv-check', timeout=600)
             except (ValueError, SystemExit) as error:

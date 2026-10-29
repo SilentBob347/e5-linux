@@ -17,11 +17,12 @@ def apply(kernel):
         kernel,recipient='changxing60',
         charger_adapter=runpy.run_path(str(HERE/'charger.py'))['apply'])
     for path in ('common/ufs.py','common/display-pipeline.py','common/display-dsi-fifo.py','common/dwc3-sink-start.py',
-                 'common/display-bindings.py','common/display-resume-planes.py',
+                 'common/display-bindings.py','common/display-resume-planes.py','changxing60/display-ready.py',
                  'yuanhang41s/display.py','yuanhang41s/spi.py','yuanhang41s/display-imports.py',
                  'changxing60/touch.py','changxing60/spi-timing.py',
                  'changxing60/spi-do-stay.py','changxing60/spi-fifo.py',
-                 'changxing60/spi-interval.py','changxing60/spi-rx-clear.py','changxing60/audio.py'):
+                 'changxing60/spi-interval.py','changxing60/spi-rx-clear.py','changxing60/audio.py',
+                 'changxing60/audio-dapm.py'):
         runpy.run_path(str(HERE.parent/path))['apply'](kernel)
     # Own DT has the legacy UMP96xx CC controller, the combined UMS9620 PHY
     # and a real BQ boost regulator. Reuse the shared manual/host-sink ABI,

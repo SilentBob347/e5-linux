@@ -64,9 +64,9 @@ class Backup(unittest.TestCase):
         self.process=Pull(args,self.remote[args[4]],self.corrupt)
         return self.process
 
-    def run_backup(self):
+    def run_backup(self,name='boot_a'):
         with patch.object(self.adb,'shell',side_effect=self.shell),patch('backend.transport.subprocess.Popen',side_effect=self.popen):
-            try:self.adb.backup_partition('boot_a',self.target,self.ctx)
+            try:self.adb.backup_partition(name,self.target,self.ctx)
             finally:self.adb.cleanup_backup(self.ctx)
 
     def test_stages_in_private_android_directory_and_pulls_with_true_progress(self):
@@ -79,6 +79,20 @@ class Backup(unittest.TestCase):
         self.assertTrue(any('chmod 644 ' in command for command in self.commands))
         self.assertFalse(any('base64' in command or 'gzip' in command for command in self.commands))
         self.assertNotIn('backup_staging',self.record)
+
+    def test_changxing60_additional_bootchain_partitions_use_verified_dd_pull(self):
+        for name in ('dtbo_a','dtbo_b','vendor_boot_a','vendor_boot_b'):
+            with self.subTest(name=name):
+                self.run_backup(name)
+                self.assertEqual(self.target.read_bytes(),self.data)
+                self.assertTrue(any('if=/dev/block/by-name/'+name+' ' in c for c in self.commands))
+                self.assertFalse(self.remote)
+
+    def test_unrelated_or_invalid_backup_partition_still_rejected(self):
+        for name in ('userdata','super','dtbo_c','vendor_boot_a;reboot'):
+            with self.subTest(name=name),self.assertRaisesRegex(ValueError,'Unsupported'):
+                self.run_backup(name)
+        self.assertFalse(self.commands)
 
     def test_bad_download_preserves_existing_backup_and_cleans_staging(self):
         self.target.write_bytes(b'existing verified backup');self.corrupt=True

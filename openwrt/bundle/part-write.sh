@@ -3,8 +3,11 @@
 # Writes only the pre-created e5root block device; never changes GPT/userdata.
 set -eu
 dev=${1:?} sectors=${2:?} raw=${3:?} grow=${4:?} token=${5:?}
-case "$dev" in /dev/block/mmcblk[0-9]p[0-9]*) ;; *) exit 2 ;; esac
+case "$dev" in /dev/block/mmcblk[0-9]*p[0-9]*|/dev/block/sd[a-z]*[0-9]*) ;; *) exit 2 ;; esac
 node=${dev##*/}
+. /data/local/tmp/e5-storage.sh
+disk=$(e5_storage_parent "$node")
+[ "$disk" = "$(e5_storage_disk)" ]
 case "$node" in *[!a-z0-9]*) exit 2 ;; esac
 for n in "$sectors" "$raw"; do case "$n" in ''|0*|*[!0-9]*) exit 2 ;; esac; done
 case "$grow" in 0|1) ;; *) exit 2 ;; esac
@@ -27,10 +30,11 @@ legacy_owned=0
 nv_phase=0
 nv_mode=${6:-}
 case "$nv_mode" in ''|--nv-check|--nv-ready) ;; *) exit 2 ;; esac
-mounted=0 devbound=0 procbound=0
+mounted=0 devbound=0 procbound=0 nvdevbound=0
 cleanup() {
     rc=$?; trap - EXIT
     if [ "$rc" != 0 ] && [ "$nv_phase" = 1 ]; then echo E5_NV_PRESERVE_FAILED >&2; fi
+    [ "$nvdevbound" = 0 ] || umount "$stage/view/dev" || exit 1
     [ "$mounted" = 0 ] || umount "$stage/view" || exit 1
     [ "$procbound" = 0 ] || umount "$stage/proc" || exit 1
     [ "$devbound" = 0 ] || umount "$stage/dev" || exit 1
@@ -93,6 +97,18 @@ image=/data/local/tmp/openwrt.ext4.gz
 # Keep this backup outside the root being overwritten, including on failure.
 nv_phase=1
 nvbase=/data/local/tmp/e5-nv-backups
+# The tools chroot has /dev, but the old/new root mounted at view is a separate
+# chroot. Python's entropy fallback needs /dev/urandom there as well.
+nv_python() {
+    local rc=0
+    [ -d "$stage/view/dev" ] || return 1
+    mount --bind /dev "$stage/view/dev" || return 1
+    nvdevbound=1
+    chroot "$stage/view" /usr/bin/python3 - "$@" < "$nvhelper" || rc=$?
+    umount "$stage/view/dev" || return 1
+    nvdevbound=0
+    return "$rc"
+}
 [ ! -L "$nvbase" ]
 mkdir -p "$nvbase"; chmod 700 "$nvbase"
 nvbackup= nvhash= nvfile=no
@@ -126,7 +142,8 @@ elif mount -t ext4 -o ro,noload "$dev" "$stage/view" 2>/dev/null; then
         # Every completed archive is immutable. An atomic receipt points at it,
         # so interruption cannot pair a newer tar with an older checksum.
         nvbackup=$(mktemp "$nvbase/$token.tar.XXXXXX")
-        (umask 077; chroot "$stage/view" /usr/bin/python3 - archive < "$nvhelper" > "$nvbackup.part")
+        umask 077
+        nv_python archive > "$nvbackup.part"
         tar -tf "$nvbackup.part" >/dev/null
         mv "$nvbackup.part" "$nvbackup"
         nvfile=${nvbackup##*/}; nvhash=$(sha256sum "$nvbackup" | cut -d' ' -f1)
@@ -137,7 +154,14 @@ elif [ ! -f "$nvreceipt" ]; then
     # A prepared but never-installed partition has no filesystem or NV. All
     # other unreadable roots require recovery, not silently losing calibration.
     marker=$(head -c 128 "$dev" | tr -d '\000')
-    case "$marker" in "E5-PART-PREPARED-V2 $token"*) ;; *)
+    prepared=${E5_PREPARED_TOKEN:-$token}
+    case "$prepared" in *[!0-9a-f]*) exit 1 ;; esac
+    [ "${#prepared}" = 32 ]
+    signature=$(dd if="$dev" bs=1 skip=1080 count=2 2>/dev/null | od -An -tx1 | tr -d ' \n')
+    [ "$signature" != 53ef ] || { echo 'Unreadable ext4 root may contain NV; nothing overwritten' >&2; exit 1; }
+    signature=$(dd if="$dev" bs=1 skip=1024 count=4 2>/dev/null | od -An -tx1 | tr -d ' \n')
+    [ "$signature" != 1020f5f2 ] || { echo 'Unexpected F2FS in root; nothing overwritten' >&2; exit 1; }
+    case "$marker" in "E5-PART-PREPARED-V2 $prepared") ;; *)
         echo 'Cannot preserve existing OpenWrt NV; root was not overwritten' >&2; exit 1 ;;
     esac
 fi
@@ -172,8 +196,8 @@ if [ -f "$nvbackup" ]; then
     printf '%s  %s\n' "$nvhash" "$nvbackup" | sha256sum -c -
     tar -xf "$nvbackup" -C "$stage/view"
     chmod 700 "$stage/view/opt/e5/nv"
-    chroot "$stage/view" /usr/bin/python3 - verify < "$nvhelper"
-    chroot "$stage/view" /usr/bin/python3 - update-backup < "$nvhelper"
+    nv_python verify
+    nv_python update-backup
 fi
 test -s "$stage/view/lib/firmware/wcnmodem.bin"
 test -x "$stage/view/sbin/init"
@@ -183,7 +207,7 @@ echo linux > "$stage/view/etc/e5linux/default-boot"
 cp /data/local/tmp/e5-install.conf "$stage/view/etc/e5/install.conf"
 chmod 600 "$stage/view/etc/e5/install.conf"
 rm -f "$stage/view/etc/e5/sd-root" "$stage/view/etc/e5/sd-trial"
-printf 'e5root /dev/%s\n' "${node%p*}" > "$stage/view/etc/e5/part-root"
+printf 'e5root /dev/%s\n' "$disk" > "$stage/view/etc/e5/part-root"
 echo 1 > "$stage/view/etc/e5/part-trial"
 echo "$token" > "$stage/view/etc/e5/part-install-token"
 test -x "$stage/view/opt/e5/android/vendor/bin/modem_control"
@@ -206,7 +230,7 @@ umount "$stage/view"; mounted=0
 # The final read-only mount must validate NV too, after actual writeback.
 if [ -f "$nvbackup" ]; then
     mount -t ext4 -o ro,noload "$dev" "$stage/view"; mounted=1
-    chroot "$stage/view" /usr/bin/python3 - verify < "$nvhelper"
+    nv_python verify
     umount "$stage/view"; mounted=0
 fi
 echo "ROOT-VERIFIED $dev filesystem_blocks=$(od -An -tu4 -j 1028 -N 4 "$dev")"

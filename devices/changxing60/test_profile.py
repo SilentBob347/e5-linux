@@ -1,6 +1,8 @@
 """Profile isolation and reference contract; no hardware validation."""
 from pathlib import Path
 import runpy
+import shutil
+import subprocess
 import tempfile
 import unittest
 
@@ -9,6 +11,61 @@ TOP=HERE.parents[1]
 
 
 class Profile(unittest.TestCase):
+    def test_panel_phy_defer_precedes_allocation_and_is_idempotent(self):
+        module=runpy.run_path(str(HERE/'display-ready.py'))
+        source='''static int sprd_panel_probe(struct mipi_dsi_device *slave)
+{
+\tstruct sprd_panel *panel;
+\tint ret;
+\tpanel = devm_kzalloc(&slave->dev, sizeof(*panel), GFP_KERNEL);
+\treturn 0;
+}
+'''
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'drivers/unisoc_platform/sprd_disp/sprd_dsi_panel.c'
+            path.parent.mkdir(parents=True);path.write_text(source)
+            module['apply'](d);result=path.read_text();module['apply'](d)
+            self.assertEqual(result,path.read_text())
+            body=result[result.index('static int sprd_panel_probe'):]
+            self.assertLess(body.index('sprd_panel_phy_ready'),body.index('devm_kzalloc'))
+            self.assertIn('put_device(phy_dev)',result)
+        prepare=(HERE/'prepare-kernel.py').read_text()
+        self.assertIn('changxing60/display-ready.py',prepare)
+        for other in ('m8','yuanhang41s','k1','t551m','e5'):
+            self.assertNotIn('changxing60/display-ready.py',
+                             (TOP/'devices'/other/'prepare-kernel.py').read_text())
+
+    @unittest.skipUnless(shutil.which('cc'),'native C compiler required')
+    def test_panel_phy_real_preflight_retries_and_balances_device_reference(self):
+        helper=runpy.run_path(str(HERE/'display-ready.py'))['PREFLIGHT']
+        fixture='''#include <assert.h>
+#include <stdbool.h>
+#include <stddef.h>
+#define EPROBE_DEFER 517
+struct device { void *data; };
+struct host { struct device *dev; };
+struct mipi_dsi_device { struct host *host; };
+static struct device phy; static int present, refs;
+static struct device *sprd_disp_pipe_get_output(struct device *d) {
+ (void)d; if (!present) return NULL; refs++; return &phy;
+}
+static void *dev_get_drvdata(struct device *d) { return d->data; }
+static void put_device(struct device *d) { assert(d==&phy); refs--; }
+'''+helper+'''int main(void) {
+ struct device d={0}; struct host host={&d}; struct mipi_dsi_device panel={&host};
+ assert(sprd_panel_phy_ready(&panel)==-EPROBE_DEFER); assert(refs==0);
+ present=1;
+ for (int n=0;n<100;n++) assert(sprd_panel_phy_ready(&panel)==-EPROBE_DEFER);
+ assert(refs==0); phy.data=&d;
+ assert(sprd_panel_phy_ready(&panel)==0); assert(refs==0);
+ return 0;
+}
+'''
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d);(path/'test.c').write_text(fixture)
+            subprocess.run(['cc','-Wall','-Wextra','-Werror',str(path/'test.c'),'-o',str(path/'test')],check=True)
+            subprocess.run([str(path/'test')],check=True)
+
     def test_config_overrides_donor_hardware(self):
         config=runpy.run_path(str(TOP/'devices/yuanhang41s/build-kernel.py'))['config']
         base='CONFIG_SPRD_UMS9620_CLK=y\nCONFIG_PINCTRL_SPRD_QOGIRN6PRO=y\nCONFIG_LOCALVERSION="-m8-old"\nCONFIG_CHARGER_BQ2560X_SPRD=m\n'
@@ -23,6 +80,28 @@ class Profile(unittest.TestCase):
     def test_display_power_supplier_precedes_consumers(self):
         order=(HERE/'module-order.txt').read_text().splitlines()
         self.assertLess(order.index('sprd_vpu_pw_domain.ko'),order.index('sprd-drm.ko'))
+
+    def test_release_module_order_keeps_spi_and_non_symbol_power_supplier(self):
+        module=runpy.run_path(str(HERE/'stage.py'))
+        common=(TOP/'upstream/module-order.txt').read_text().split()
+        own=(HERE/'module-order.txt').read_text().split()
+        replacements={'tlsc6x.ko':'axs15205.ko','aw32257_charger.ko':'bq2560x-charger.ko'}
+        with tempfile.TemporaryDirectory() as d:
+            kernel=Path(d);modules=kernel/'modules';modules.mkdir()
+            for name in set(own+[replacements.get(n,n) for n in common]):
+                (modules/name).write_bytes(b'\0vermagic=6.18.test SMP\0depends=\0')
+            order=module['early_module_order'](kernel,'6.18.test')
+            self.assertEqual(len(order),len(set(order)))
+            self.assertLess(order.index('spi-sprd.ko'),order.index('axs15205.ko'))
+            self.assertLess(order.index('sprd_vpu_pw_domain.ko'),order.index('sprd-drm.ko'))
+            (modules/'spi-sprd.ko').unlink()
+            with self.assertRaisesRegex(ValueError,'spi-sprd'):
+                module['early_module_order'](kernel,'6.18.test')
+            root=kernel/'root';module['stage_touch'](root)
+            self.assertEqual((root/'etc/modules.d/42-changxing60-touch').read_text(),
+                             'spi-sprd\naxs15205\n')
+        builder=(TOP/'openwrt/build-profile-tf.py').read_text()
+        self.assertIn("['early_module_order'](a.kernel,release)",builder)
 
     def test_probe_does_not_use_an_mmc_name_or_mount_android(self):
         text=(HERE/'probe-init.sh').read_text()

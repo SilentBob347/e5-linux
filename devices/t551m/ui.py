@@ -147,6 +147,11 @@ def stage(root, profile='t551m'):
     (root / 'opt/e5/t551m-atd').chmod(0o755)
     runpy.run_path(str(Path(__file__).with_name('ui-cleanup.py')))['cleanup'](root)
     runpy.run_path(str(TOP / 'devices/common/infoscreen/stage.py'))['stage'](root)
+    policy = TOP / 'tools/release-ui-policy.py'
+    target = root / 'opt/e5/release-ui-policy'
+    shutil.copyfile(policy, target)
+    target.chmod(0o755)
+    runpy.run_path(str(policy))['cleanup'](root)
     # S10boot runs uci-defaults after rcS has expanded its startup file list.
     # Pre-create these links in offline Linux roots for the very first boot.
     if os.name != 'nt':

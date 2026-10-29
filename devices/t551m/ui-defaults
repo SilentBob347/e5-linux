@@ -4,6 +4,7 @@ cd /opt/e5/ui-packages
 sha256sum -c SHA256SUMS
 apk add --no-network --allow-untrusted ./*.apk
 python3 /opt/e5/t551m-ui-compat
+python3 /opt/e5/release-ui-policy --root /
 uci set luci.main.mediaurlbase='/luci-static/aurora'
 uci commit luci
 # Aurora replaces Argon; keep LuCI's Bootstrap fallback available.

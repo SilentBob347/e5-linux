@@ -173,6 +173,28 @@ def slot_api():
     return runpy.run_path(helper)
 
 
+def storage_api():
+    helper = Path(SCRIPTS) / 'installer/storage-api.py'
+    if not helper.is_file():
+        helper = Path(__file__).resolve().parents[2] / 'installer/backend/storage.py'
+    return runpy.run_path(str(helper))
+
+
+def storage_script():
+    """Same READ-DESCRIPTOR implementation in Android, recovery and OpenWrt."""
+    library = storage_api()['library']()
+    profile = package_profile() or {}
+    if profile.get('profile') != 'changxing60':
+        return library + '\n'
+    helper = Path(F) / 'e5-ufs-id'
+    if not helper.is_file():
+        raise ValueError('Package lacks UFS identity helper / 安装包缺少 UFS 身份工具')
+    remote = TMP + '/e5-ufs-id-' + sha256(str(helper))[:16]
+    push(str(helper), remote, 'UFS identity helper')
+    su_checked('准备 UFS 身份读取工具 / preparing UFS identity reader', 'chmod 755 ' + remote)
+    return 'export E5_UFS_ID_HELPER=' + shlex.quote(remote) + '\n' + library + '\n'
+
+
 def current_slots():
     if ANDROID_SLOT not in ('a', 'b') or LINUX_SLOT not in ('a', 'b') or ANDROID_SLOT == LINUX_SLOT:
         raise ValueError('Android/Linux slots have not been identified')
@@ -207,7 +229,7 @@ def package_profile():
         return None  # Legacy E5 packages did not carry a profile manifest.
     with open(path, encoding='utf-8') as stream:
         value = json.load(stream)
-    if value.get('profile') not in ('e5', 't551m', 'm8', 't512n', 'yuanhang41s', 'k1', 'lym10k') or not value.get('android_models'):
+    if value.get('profile') not in ('e5', 't551m', 'm8', 't512n', 'yuanhang41s', 'k1', 'lym10k', 'changxing60') or not value.get('android_models'):
         die('invalid package device profile')
     if value['profile'] == 'k1' and value['android_models'] != ['angelcare K1']:
         die('K1 package model identity differs')
@@ -218,7 +240,7 @@ def package_profile():
 
 def default_hotspot_name():
     profile = package_profile()
-    model = {'e5': 'E5', 't551m': 'T551M', 'm8': 'M8', 't512n': 'T512N', 'yuanhang41s': 'Yuanhang41S', 'k1': 'K1', 'lym10k': 'LYM-10K'}[
+    model = {'e5': 'E5', 't551m': 'T551M', 'm8': 'M8', 't512n': 'T512N', 'yuanhang41s': 'Yuanhang41S', 'k1': 'K1', 'lym10k': 'LYM-10K', 'changxing60': 'Changxing60'}[
         profile['profile'] if profile else 'e5']
     return model + '-OpenWrt'
 
@@ -539,6 +561,8 @@ def android_checks():
         model = sh('getprop ro.product.model').strip()
         if model not in profile['android_models']:
             die(f"Wrong device: package is for {profile['profile']}, Android reports {model!r}. Nothing was written.")
+        if profile['profile'] == 'changxing60' and sh('getprop ro.product.device').strip() != 'P720S20':
+            die('Wrong Changxing60 hardware identity')
         if profile['profile'] == 'k1' and sh('getprop ro.product.device').strip() != 'ums9157_2h10':
             die('Wrong K1 board; expected ums9157_2h10. Nothing was written.')
         if profile['profile'] == 'yuanhang41s' and sh('getprop ro.product.device').strip() != 'P720S11':
@@ -568,6 +592,7 @@ def pull_device_files(work, out=None):
     st = f'{TMP}/e5pull'
     su(f'rm -rf {st}; mkdir -p {st}')
     board = (package_profile() or {}).get('profile') == 'yuanhang41s'
+    changxing = (package_profile() or {}).get('profile') == 'changxing60'
     pskey = 'bt_configure_pskey.ini' if board else 'bt_configure_pskey.xpe.ini'
     rf = 'bt_configure_rf.ini' if board else 'bt_configure_rf.xpe.ini'
     amplifier = 'aw883xx_acf.bin' if board else 'aw87xxx_acf.bin'
@@ -581,6 +606,8 @@ def pull_device_files(work, out=None):
         wanted += ['/vendor/firmware/sitronix_firmware_huaying.dump',
                    '/vendor/firmware/awinic_params.bin', '/odm/etc/audio_route.xml',
                    '/odm/etc/audio_params/sprd/audio_pga.xml']
+    if changxing:
+        wanted += ['/odm/etc/audio_config.xml', '/odm/etc/audio_route.xml', '/odm/etc/audio_params/sprd/audio_pga.xml', '/vendor/firmware/axs_firmware_easyquick.bin']
     wanted += ['/odm/firmware/' + n for n in su('ls /odm/firmware/').split()
                if n.startswith('wifi_board_config') and n.endswith('.ini')]
     for p in wanted:
@@ -599,6 +626,8 @@ def pull_device_files(work, out=None):
             'l_agdsp_a.img', 'audio_structure.xml', 'dsp_vbc.xml', 'cvs.xml']
     if board:
         need += [amplifier,'sitronix_firmware_huaying.dump','audio_route.xml','audio_pga.xml']
+    if changxing:
+        need += ['audio_config.xml','audio_route.xml','audio_pga.xml','axs_firmware_easyquick.bin',amplifier,'codec.xml']
     for n in need:
         if not os.path.isfile(os.path.join(raw, n)):
             die(f'this device has no {n}: not an E5, or a different firmware')
@@ -615,6 +644,11 @@ def pull_device_files(work, out=None):
                 (board and n in ('sitronix_firmware_huaying.dump','awinic_params.bin','audio_route.xml','audio_pga.xml')) or \
                 (n.startswith('wifi_board_config') and n.endswith('.ini')):
             shutil.copy(os.path.join(raw, n), fw)
+    if changxing:
+        for name in ('audio_config.xml','audio_route.xml','audio_pga.xml'):
+            shutil.copyfile(Path(raw)/name, Path(fw)/('changxing60-'+name))
+        target = Path(fw)/'axs15205'; target.mkdir()
+        shutil.copyfile(Path(raw)/'axs_firmware_easyquick.bin', target/'easyquick.bin')
     tools = os.path.join(SCRIPTS, 'tools')
     bt = (os.path.join(tools, 'sprd-bt-config.py'), os.path.join(raw, pskey),
           os.path.join(raw, rf), os.path.join(raw, 'btmac.txt'), os.path.join(fw, 'sprd'))
@@ -726,14 +760,9 @@ def device_sd():
     Android's partitions live on (userdata, misc).  "Removable" cannot be asked
     of this controller -- both mmcblk devices report 0 -- so it is told apart by
     what it carries."""
-    emmc = ''
-    for line in su('for u in /sys/class/block/mmcblk*p*/uevent; do '
-                   'grep -qx PARTNAME=userdata "$u" 2>/dev/null && '
-                   'n=${u%/*} && n=${n##*/} && echo ${n%%p*}; done').split():
-        emmc = line
-        break
-    if not emmc:
-        die('no userdata partition: not an E5?')
+    emmc = su_checked('识别内部存储 / identifying internal storage', storage_script()+'e5_storage_disk').strip()
+    if not re.fullmatch(r'mmcblk[0-9]+|sd[a-z]+',emmc):
+        die('cannot establish internal storage')
     devs = [d for d in su('for d in /sys/class/block/mmcblk*; do n=${d##*/}; '
                           'case $n in *p[0-9]*|*boot*) continue;; esac; '
                           f'[ $n = {emmc} ] && continue; echo $n; done').split()
@@ -1038,14 +1067,14 @@ def original_nv_recovery(reason):
     profile = package_profile()
     if not profile or ANDROID_SLOT not in ('a','b'): die('Cannot identify original NV model/slot')
     mapping = su_checked('识别原机 NV / identifying original NV',
-        "for u in /sys/class/block/mmcblk0p*/uevent; do "
+        storage_script() + "disk=$(e5_storage_disk); for u in /sys/class/block/*/uevent; do n=${u%/uevent}; n=${n##*/}; [ \"$(e5_storage_parent \"$n\")\" = \"$disk\" ] || continue; "
         "awk -F= '/^PARTNAME=/{n=$2}/^DEVNAME=/{d=$2}END{print n, d}' \"$u\"; done")
     paths = {}
     for line in mapping.splitlines():
         parts = line.split()
         if len(parts)!=2 or parts[0] not in nv['NAMES']: continue
         name, dev = parts
-        if name in paths or not re.fullmatch(r'mmcblk0p[1-9][0-9]*',dev): die('Ambiguous original NV map')
+        if name in paths or not re.fullmatch(r'(?:mmcblk[0-9]+p|sd[a-z]+)[1-9][0-9]*',dev): die('Ambiguous original NV map')
         paths[name] = '/dev/block/'+dev
     if set(paths)!=set(nv['NAMES']): die('Original NV partition map is incomplete')
     base = Path(GUI.backup_base()) if GUI else Path.home()/'e5-backups'
@@ -1057,17 +1086,32 @@ def original_nv_recovery(reason):
     devices = {}
     for name, path in paths.items():
         script = 'test -b '+path+' && cat '+path
+        local = directory/'source'/name
+        count = su_checked('读取原机 NV 容量 / reading original NV capacity',
+                           'cat /sys/class/block/'+path.rsplit('/',1)[-1]+'/size').strip()
+        if not count.isdigit() or int(count) <= 0:
+            die('Invalid original NV partition capacity / 原机 NV 分区容量无效: '+name)
+        size = int(count)*512
         if GUI:
-            data = GUI.read_legacy(SimpleNamespace(serial=SERIAL), script)
+            # Metadata reads are deliberately capped at 16 MiB. NV partitions
+            # are larger (50 MiB on P720S20): stream a size-bound, hash-checked
+            # dd/ADB pull into the PC file, never return the whole bank as bytes.
+            from backend.binary_io import pull_binary
+            if GUI.adb.serial != SERIAL: die('Original NV transport device differs')
+            pull_binary(GUI.adb.call, GUI.adb.shell, script, local, expected_size=size)
         else:
             command = android_shell('-c', shlex.quote(script)) if ANDROID_BUSYBOX else script
             command = f'{SU} -c '+shlex.quote(command) if SU else command
-            result = subprocess.run([ADB,*(['-s',SERIAL] if SERIAL else []),'exec-out',command],
-                stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=180,
-                **({'creationflags':subprocess.CREATE_NO_WINDOW} if os.name=='nt' else {}))
+            pending = local.with_name(local.name+'.partial')
+            with pending.open('xb') as output:
+                result = subprocess.run([ADB,*(['-s',SERIAL] if SERIAL else []),'exec-out',command],
+                    stdout=output,stderr=subprocess.PIPE,timeout=180,
+                    **({'creationflags':subprocess.CREATE_NO_WINDOW} if os.name=='nt' else {}))
+                output.flush(); os.fsync(output.fileno())
             if result.returncode: die('Original NV read failed: '+name)
-            data = result.stdout
-        local = directory/'source'/name; local.write_bytes(data); local.chmod(0o600)
+            if pending.stat().st_size != size: die('Incomplete original NV read: '+name)
+            pending.replace(local)
+        local.chmod(0o600)
         try: nv['validate'](local,name)
         except nv['NVError']:
             die('本机原始 NV 校验失败，不能作为恢复来源；未覆盖系统 / Original NV validation failed; nothing overwritten')
@@ -1233,12 +1277,11 @@ def part_userdata_policy(a):
 
 def part_target(a, raw_size):
     """The userdata node and the sizes an internal-partition install wants."""
-    probe = su_checked('读取分区 / reading the partition table',
-                       'for u in /sys/class/block/mmcblk*p*/uevent; do '
-                       'n=$(basename "$(dirname "$u")"); '
-                       'grep -qx PARTNAME=userdata "$u" 2>/dev/null && echo "data $n $(cat /sys/class/block/$n/size)"; '
-                       'grep -qx PARTNAME=e5root "$u" 2>/dev/null && echo "part $n"; '
-                       'done; df -k /data | tail -1')
+    probe = su_checked('读取分区 / reading the partition table', storage_script() +
+        'disk=$(e5_storage_disk); n=$(e5_storage_part userdata "$disk"); '
+        'echo "data $n $(cat /sys/class/block/$n/size)"; '
+        'n=$(e5_storage_part e5root "$disk") && echo "part $n"; '
+        'df -k /data | tail -1')
     node = data_sectors = ''
     existing = None
     used_mib = 0

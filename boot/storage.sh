@@ -99,3 +99,14 @@ e5_storage_sector_size() {
     value=$(cat "${E5_STORAGE_SYS:-/sys/class/block}/${1##*/}/queue/logical_block_size") || return 1
     case "$value" in 512|4096) printf '%s\n' "$value" ;; *) return 1 ;; esac
 }
+
+# Mounted roots may occupy a partition or a whole removable SD card.
+e5_storage_root_disk() {
+    local node=${1##*/}
+    if [ -f "${E5_STORAGE_SYS:-/sys/class/block}/$node/partition" ]; then
+        e5_storage_parent "$node"
+    else
+        [ "$(cat "${E5_STORAGE_SYS:-/sys/class/block}/$node/device/type" 2>/dev/null)" = SD ] || return 1
+        printf '%s\n' "$node"
+    fi
+}

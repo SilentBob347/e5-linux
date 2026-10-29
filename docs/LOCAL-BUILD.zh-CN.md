@@ -167,3 +167,5 @@ sudo python3 tools/build-release.py clean-staging --workspace /home/kano/openwrt
 
 `run`、`package`、`clean-staging` 使用同一把锁，防止清理与构建并行。旧脚本直接
 执行无法被这把锁管住，所以本地构建必须经过此入口；CI 在独立 runner 继续原流程。
+
+畅行60（`changxing60`，P720S20 UFS 4Kn）已接入相同构建入口；内核仍用登记的 `tools/build-profile-kernel.py --profile changxing60`，正式包用 `--profiles changxing60`。Windows/Mac 安装器必须包含新的存储库；见 [安装接入与验收边界](CHANGXING60-INSTALL.zh-CN.md)。

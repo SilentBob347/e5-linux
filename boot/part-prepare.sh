@@ -28,15 +28,16 @@ $request
 EOF
     [ -z "$extra" ] && [ "${#token}" = 32 ] && [ "${#cid}" = 32 ] && [ "${#bc}" = 64 ] || part_reject
     case "$token$cid$bc" in *[!0-9a-f]*) part_reject ;; esac
-    case "$node" in mmcblk[0-9]p[0-9]*) ;; *) part_reject ;; esac
+    case "$node" in mmcblk[0-9]*p[0-9]*|sd[a-z]*[0-9]*) ;; *) part_reject ;; esac
     case "$node" in *[!a-z0-9]*) part_reject ;; esac
     for actual in "$start" "$previous" "$target" "$need"; do
         case "$actual" in ''|0*|*[!0-9]*) part_reject ;; esac
         [ "${#actual}" -le 12 ] || part_reject
     done
-    dev=/dev/$node disk=/dev/${node%p*}
+    actual=$(e5_storage_parent "$node") || part_reject
+    dev=/dev/$node disk=/dev/$actual
     [ -b "$dev" ] && [ -b "$disk" ] && [ -b "$misc" ] || part_reject
-    [ "$(cat /sys/class/block/${node%p*}/device/cid)" = "$cid" ] || part_reject
+    [ "$(e5_storage_identity "$actual")" = "$cid" ] || part_reject
     grep -qx PARTNAME=userdata /sys/class/block/$node/uevent || part_reject
     [ "$(cat /sys/class/block/$node/start)" = "$start" ] || part_reject
     [ "$(cat /sys/class/block/$node/size)" = "$previous" ] || part_reject
@@ -47,9 +48,7 @@ EOF
         *) [ "$target" -ge 4194304 ] && [ "$need" -ge 4194304 ] &&
                [ "$((target + need))" -le "$previous" ] || part_reject ;;
     esac
-    for u in /sys/class/block/${node%p*}p*/uevent; do
-        grep -qx PARTNAME=e5root "$u" && part_reject
-    done
+    e5_storage_part e5root "$actual" >/dev/null && part_reject
     [ -z "$part_rejected" ] || return 0
     # From here on the disk is modified, so the safety timer must not reboot
     # into a half-prepared layout, and a failure below is a real failure.

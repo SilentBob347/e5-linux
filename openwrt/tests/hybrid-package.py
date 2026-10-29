@@ -51,7 +51,7 @@ class Package(unittest.TestCase):
         (files / 'device-profile.json').write_text(json.dumps({'profile': profile, 'android_models': [finish['MODELS'][profile]]}))
         (files / 'VERSION').write_text('hybrid fixture\n')
         with gzip.open(files / 'openwrt.ext4.gz', 'wb') as stream: stream.write(bytes(4096))
-        for src, dst in [('tools/android-bootchain.sh', 'files/android-bootchain.sh'),
+        for src, dst in [('boot/storage.sh', 'files/storage.sh'), ('tools/android-bootchain.sh', 'files/android-bootchain.sh'),
                          ('openwrt/bundle/collect-device-files.sh', 'files/collect-device-files.sh'),
                          ('tools/sprd-bt-config.py', 'scripts/tools/sprd-bt-config.py'),
                          ('tools/vbc-profile/vbc-profile.py', 'scripts/tools/vbc-profile/vbc-profile.py')]:

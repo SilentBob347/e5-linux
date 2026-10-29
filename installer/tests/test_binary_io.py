@@ -70,6 +70,17 @@ class BinaryIO(unittest.TestCase):
         with self.assertRaises(ValueError):pull_binary(self.pull,self.shell,'cat fixture',self.local,limit=10)
         self.assertFalse(self.calls)
 
+    def test_known_50_mib_nv_stream_uses_exact_size_without_relaxing_metadata_cap(self):
+        self.data=bytes(range(256))*(50*4096)
+        self.assertEqual(len(self.data),50<<20)
+        with self.assertRaises(ValueError):pull_binary(self.pull,self.shell,'cat NV',self.local)
+        self.assertFalse(self.calls)
+        self.assertEqual(pull_binary(self.pull,self.shell,'cat NV',self.local,expected_size=50<<20),50<<20)
+        self.assertEqual(sha(self.local),hashlib.sha256(self.data).hexdigest())
+        self.short=True
+        with self.assertRaises(ValueError):pull_binary(self.pull,self.shell,'cat NV',self.local,expected_size=50<<20)
+        self.assertEqual(sha(self.local),hashlib.sha256(self.data).hexdigest())
+
     def test_shared_read_uses_actual_serial_bound_pull(self):
         adb=Adb.__new__(Adb);adb.exe='fixture-adb';adb.serial='chosen';adb.su='su';adb.context=None
         def run(argv,**kwargs):

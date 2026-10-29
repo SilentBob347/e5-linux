@@ -1,3 +1,11 @@
+
+storage_update_id() {
+    if [ "$(cat /sys/class/block/$1/device/type 2>/dev/null)" = SD ]; then
+        cat /sys/class/block/$1/device/cid
+    else
+        e5_storage_identity "$1"
+    fi
+}
 # Sourced by init: replace only the verified, unmounted internal or TF root.
 part_update_pending() {
     [ ! -e /run/tf-update-conflict ] || return 1
@@ -12,7 +20,7 @@ part_update_pending() {
     . /etc/part-progress.sh
     part_progress_start
     echo '1/5 checking offline update' > /run/part-status
-    node=${dev##*/}; disk=${node%p*}
+    node=${dev##*/}; disk=$(e5_storage_root_disk "$node") || return 1
     for kv in $(cat "$mp/.e5-update/request"); do
         case "$kv" in
             KIND=*) KIND=${kv#*=} ;;
@@ -30,7 +38,7 @@ part_update_pending() {
     esac
     case "$ROOT_BYTES:$RAW_BYTES" in *[!0-9:]*|:*|*:) umount "$mp"; part_fail 'invalid update size'; return 1 ;; esac
     case "$RAW_SHA256" in *[!0-9a-f]*|'') umount "$mp"; part_fail 'invalid image hash'; return 1 ;; esac
-    if [ "$VERSION" != 1 ] || [ "$CID" != "$(cat /sys/class/block/$disk/device/cid)" ] ||
+    if [ "$VERSION" != 1 ] || [ "$CID" != "$(storage_update_id "$disk")" ] ||
        [ "$ROOT_BYTES" != "$(blockdev --getsize64 "$dev")" ] ||
        [ "$PROFILE" != "$(cat "$mp/etc/e5/device-profile")" ] ||
        [ ! -f "$mp/etc/e5/$KIND-root" ] || [ "$RAW_BYTES" -le 0 ] || [ "$RAW_BYTES" -gt "$ROOT_BYTES" ]; then

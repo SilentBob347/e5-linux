@@ -18,8 +18,10 @@ class Audio(unittest.TestCase):
         put('etc/e5/device-profile', 'changxing60\n')
         put('usr/share/e5/voice-routes.json', json.dumps({'ROUTES':{'Mic Function':'on'}, 'CODEC_IIS':{}, 'SPEAKER': {'Earpiece Function':'off', 'Speaker Function':'on'}}))
         put('usr/libexec/e5-volume', 'MAX=15\ngain() { echo $((39 - (MAX - $1) * 2)); }\n[ x = y ] && g=39\n')
-        put('usr/share/alsa/ucm2/sprdphone-sc273/HiFi.conf', "VBC DAC0 DG Set' 39,39\nAO Gain AO Playback Volume' 2\nDAC Gain DAC Playback Volume' 0\n")
-        put('lib/firmware/changxing60-audio_pga.xml', '<audio_pga><Music><Handsfree><Playback><VBC_DAC0_DG><volume0 val="0x21"/></VBC_DAC0_DG></Playback></Handsfree></Music></audio_pga>')
+        put('usr/share/alsa/ucm2/sprdphone-sc273/HiFi.conf', "SectionVerb {\n\tEnableSequence [\nVBC DAC0 DG Set' 39,39\nAO Gain AO Playback Volume' 2\nDAC Gain DAC Playback Volume' 0\n\t]\n}\n")
+        put('lib/firmware/changxing60-audio_config.xml', '<config><voice_volume levels="10"/></config>')
+        voice = ''.join('<'+device+'>'+''.join('<'+band+'><VBC_DAC1_DG>'+''.join('<volume'+str(i)+' val="'+str(gain)+'"/>' for i in range(16))+'</VBC_DAC1_DG></'+band+'>' for band,gain in zip(('NB1','WB1','SWB1','FB1'), gains))+'</'+device+'>' for device,gains in (('Handset',(25,25,24,24)),('Handsfree',(26,26,24,24))))
+        put('lib/firmware/changxing60-audio_pga.xml', '<audio_pga><Audio>'+voice+'</Audio><Music><Handsfree><Playback><VBC_DAC0_DG><volume0 val="0x21"/></VBC_DAC0_DG></Playback></Handsfree></Music></audio_pga>')
         put('lib/firmware/codec.xml', '<codec><Music><Handsfree><Playback><ao_playback_volume><volume6 val="0x06"/></ao_playback_volume><dacs_playback_volume><volume6 val="0"/></dacs_playback_volume></Playback></Handsfree></Music></codec>')
         devices = ''.join('<'+tag+'><on><ctl name="Speaker Function" val="1"/><ctl name="AOL EAR Sel" val="AOL"/></on></'+tag+'>' for tag in ('handset', 'speaker'))
         scenes = ''.join('<voice_playback device="'+dev+'"><on><ctl name="aw87xxx_profile_switch_0" val="'+mode+'"/></on></voice_playback>' for dev, mode in (('0x1', 'Receiver'), ('0x2', 'Music')))
@@ -41,10 +43,18 @@ class Audio(unittest.TestCase):
         self.assertEqual(data['SPEAKER']['aw87xxx_profile_switch_0'], 'Music')
         self.assertEqual(data['ROUTES']['ADD0 DATA SEL'], 'ADD0_DATA_MIC13')
         self.assertEqual(data['CODEC_IIS']['VBC_MUX_ADC1_IIS_PORT_SEL'], 'VBC_IIS_PORT_IIS2')
+        self.assertEqual(data['VOICE_VOLUME'], {'steps':10, 'dac_gain':{'0':25,'2':25,'4':24,'5':24,'7':26,'9':26,'11':24,'12':24}})
         self.assertEqual((self.root/'lib/firmware/changxing60-media-max').read_text(), '33\n')
         self.assertIn("AO Gain AO Playback Volume' 6", (self.root/'usr/share/alsa/ucm2/sprdphone-sc273/HiFi.conf').read_text())
+        self.assertIn("VBC_IIS_TX0_WD_SEL' WD_24BIT", (self.root/'usr/share/alsa/ucm2/sprdphone-sc273/HiFi.conf').read_text())
         stage['stage_audio'](self.root)
         self.assertEqual(path.read_bytes(), first)
+
+    def test_invalid_factory_voice_levels_are_rejected(self):
+        config = self.root/'lib/firmware/changxing60-audio_config.xml'
+        config.write_text('<config><voice_volume levels="16"/></config>')
+        with self.assertRaisesRegex(ValueError, 'voice volume levels'):
+            stage['stage_audio'](self.root)
 
     def test_different_board_or_unrecognized_route_is_rejected(self):
         profile = self.root / 'etc/e5/device-profile'

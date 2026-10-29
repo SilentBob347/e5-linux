@@ -28,14 +28,41 @@ def stage_screen(root):
     session.write_text(scale_session(session.read_text()))
 
 
+def early_module_order(kernel, release):
+    """Keep this board's non-symbol suppliers and SPI controller in boot."""
+    top = Path(__file__).resolve().parents[2]
+    own = (Path(__file__).resolve().parent/'module-order.txt').read_text().split()
+    common = (top/'upstream/module-order.txt').read_text().split()
+    replacements = {'tlsc6x.ko': 'axs15205.ko', 'aw32257_charger.ko': 'bq2560x-charger.ko'}
+    requested = own + [replacements.get(name,name) for name in common]
+    return runpy.run_path(str(top/'devices/common/bringup-probe.py'))['module_order'](
+        Path(kernel)/'modules', requested, release)
+
+
+def stage_touch(root):
+    path = Path(root)/'etc/modules.d/42-changxing60-touch'
+    path.parent.mkdir(parents=True,exist_ok=True)
+    path.write_text('spi-sprd\naxs15205\n')
+
+
 def stage(root):
     runpy.run_path(str(Path(__file__).resolve().parents[1] / 'm8/stage.py'))['stage'](
         root, profile='changxing60')
     stage_screen(root)
+    stage_touch(root)
     root = Path(root)
     (root / 'etc/e5/storage-kind').write_text('ufs\n')
     (root / 'etc/e5/receiver-wiring').write_text('aol\n')
     runpy.run_path(str(Path(__file__).resolve().parents[1] / 'common/stage-ufs.py'))['stage'](root)
+    target = root / 'usr/lib/e5/changxing60_audio.py'
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(Path(__file__).read_bytes().replace(b'\r\n', b'\n'))
+    service = root / 'etc/init.d/e5-changxing60-audio'
+    service.write_text("#!/bin/sh /etc/rc.common\nSTART=18\nstart() { /usr/bin/python3 -c 'from sys import path; path.insert(0, \"/usr/lib/e5\"); from changxing60_audio import stage_audio; stage_audio(\"/\")'; }\n")
+    service.chmod(0o755)
+    link = root / 'etc/rc.d/S18e5-changxing60-audio'
+    if not link.is_symlink(): link.symlink_to('../init.d/e5-changxing60-audio')
+
 
 
 def stage_audio(root):
@@ -77,6 +104,21 @@ def stage_audio(root):
         routes[key] = {**routes['SPEAKER'], **route, **scene}
     routes_path.write_text(json.dumps(routes, separators=(',', ':')) + '\n')
     pga = ET.parse(firmware / 'changxing60-audio_pga.xml').getroot()
+    config = ET.parse(firmware / 'changxing60-audio_config.xml').getroot()
+    steps = int(config.find('voice_volume').attrib['levels'], 0)
+    if not 1 <= steps <= 15:
+        raise ValueError('Unsupported recipient voice volume levels')
+    gains = {}
+    for device, modes in (('Handset', (0, 2, 4, 5)), ('Handsfree', (7, 9, 11, 12))):
+        for band, mode in zip(('NB1', 'WB1', 'SWB1', 'FB1'), modes):
+            node = pga.find('Audio/' + device + '/' + band + '/VBC_DAC1_DG')
+            values = [int(node.find('volume' + str(i)).attrib['val'], 0)
+                      for i in range(1, 16)]
+            if len(set(values)) != 1 or not 14 <= values[0] <= 127:
+                raise ValueError('Unsupported recipient voice PGA curve')
+            gains[str(mode)] = values[0]
+    routes['VOICE_VOLUME'] = {'steps': steps, 'dac_gain': gains}
+    routes_path.write_text(json.dumps(routes, separators=(',', ':')) + '\n')
     maximum = int(pga.find('Music/Handsfree/Playback/VBC_DAC0_DG/volume0').attrib['val'], 0)
     if not 1 <= maximum <= 127:
         raise ValueError('Invalid recipient media gain')
@@ -98,4 +140,15 @@ def stage_audio(root):
         raise ValueError('Invalid recipient codec gains')
     text = text.replace("AO Gain AO Playback Volume' 2", "AO Gain AO Playback Volume' " + str(ao))
     text = text.replace("DAC Gain DAC Playback Volume' 0", "DAC Gain DAC Playback Volume' " + str(dac))
+    # The shared E5 UCM omitted TX0 width. Use this recipient's complete
+    # physical codec link, not just the equivalent voice-only route manifest.
+    marker = '# P720S20 factory codec IIS playback'
+    if marker not in text:
+        anchor = '\tEnableSequence [\n'
+        if text.count(anchor) < 1:
+            raise ValueError('Missing UCM verb enable sequence')
+        lines = '\t\t' + marker + '\n'
+        lines += ''.join('\t\tcset "name=\'' + name + "' " + value + '"\n'
+                         for name, value in controls('vbc_iis_mux/only_codec_p/on').items())
+        text = text.replace(anchor, anchor + lines, 1)
     ucm.write_text(text)

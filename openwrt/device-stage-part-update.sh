@@ -1,6 +1,14 @@
 #!/bin/sh
+storage_update_id() {
+    if [ "$(cat /sys/class/block/$1/device/type 2>/dev/null)" = SD ]; then
+        cat /sys/class/block/$1/device/cid
+    else
+        e5_storage_identity "$1"
+    fi
+}
 # Prepare only: the mounted root is never overwritten from the running system.
 set -eu
+. "${1:?upload directory}/storage.sh"
 stage=${1:?upload directory}
 case "${E5_NV_POLICY:-preserve}" in preserve|original) ;; *) exit 2 ;; esac
 case "$stage" in /.e5-upload-*) token=${stage#/.e5-upload-} ;; *) exit 1 ;; esac
@@ -17,7 +25,7 @@ flock -n 9 || { echo 'another partition update is running' >&2; exit 1; }
 kind=part
 [ ! -f /etc/e5/sd-root ] || kind=sd
 dev=$(cat "/run/e5linux/$kind-root-dev")
-node=${dev##*/}; disk=${node%p*}
+node=${dev##*/}; disk=$(e5_storage_root_disk "$node")
 [ -b "$dev" ]
 if [ "$kind" = part ]; then
     grep -qx PARTNAME=e5root "/sys/class/block/$node/uevent"
@@ -52,7 +60,9 @@ for name in lib/firmware/wcnmodem.bin lib/firmware/gnssmodem.bin lib/firmware/wi
     lib/firmware/cvs lib/firmware/aw87xxx_acf.bin lib/firmware/sprd \
     lib/firmware/aw883xx_acf.bin lib/firmware/awinic_params.bin \
     lib/firmware/sitronix_firmware_huaying.dump lib/firmware/sitronix \
-    lib/firmware/yuanhang41s-HiFi.conf lib/firmware/yuanhang41s-media-max \
+    lib/firmware/changxing60-audio_config.xml lib/firmware/changxing60-audio_route.xml \
+                   lib/firmware/changxing60-audio_pga.xml lib/firmware/axs15205 \
+                   lib/firmware/yuanhang41s-HiFi.conf lib/firmware/yuanhang41s-media-max \
     lib/firmware/android-firmware-slot opt/e5/android; do
     [ ! -e "$name" ] || firmware="$firmware $name"
 done
@@ -87,7 +97,7 @@ required_kib=$((payload + nv_kib + 262144))
 [ "$total_kib" -gt "$required_kib" ] || {
     echo "not enough physical memory for offline update: need ${required_kib} KiB, total ${total_kib} KiB; request not armed" >&2; exit 1;
 }
-cid=$(cat "/sys/class/block/$disk/device/cid")
+cid=$(storage_update_id "$disk")
 {
     echo VERSION=1; echo KIND="$kind"; echo CID="$cid"; echo ROOT_BYTES="$bytes"
     echo RAW_BYTES="$E5_IMAGE_SIZE"; echo RAW_SHA256="$E5_IMAGE_SHA256"

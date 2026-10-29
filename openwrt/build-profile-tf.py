@@ -21,7 +21,7 @@ import time
 import zipfile
 
 TOP = Path(__file__).resolve().parents[1]
-MODELS = {'e5': ['E5'], 't551m': ['T551M'], 'm8': ['VIPME M8'], 't512n': ['T512N'], 'yuanhang41s': ['ZTE 7546N'], 'k1': ['angelcare K1'], 'lym10k': ['LYM-10K']}
+MODELS = {'e5': ['E5'], 't551m': ['T551M'], 'm8': ['VIPME M8'], 't512n': ['T512N'], 'yuanhang41s': ['ZTE 7546N'], 'k1': ['angelcare K1'], 'lym10k': ['LYM-10K'], 'changxing60': ['ZTE 7552N']}
 
 
 def digest(path):
@@ -182,10 +182,19 @@ def main():
     shutil.copyfile(a.kernel / 'modules.in-tree', files / 'modules.in-tree')
     init = a.work / 'init'
     init.write_bytes((TOP / 'boot/init').read_bytes().replace(b'\r\n', b'\n'))
+    boot_order = a.kernel/'module-order.txt'
+    ufs_args = []
+    if a.profile == 'changxing60':
+        helper = root/'usr/libexec/e5-ufs-id'
+        shutil.copyfile(helper, files/'e5-ufs-id')
+        ufs_args = ['--ufs-helper', helper]
+        ordered = runpy.run_path(str(TOP/'devices/changxing60/stage.py'))['early_module_order'](a.kernel,release)
+        boot_order = a.work/'release-module-order.txt'
+        boot_order.write_text('\n'.join(ordered)+'\n')
     run('python3', TOP / 'boot/build-boot-image.py', '--stock-boot', a.stock_boot,
         '--misc-head', a.misc_head, '--kernel', a.kernel / 'Image.lk',
-        '--modules', a.kernel / 'modules', '--module-order', a.kernel / 'module-order.txt',
-        '--busybox', a.busybox, '--init', init, '--cmdline',
+        '--modules', a.kernel / 'modules', '--module-order', boot_order,
+        '--busybox', a.busybox, *ufs_args, '--init', init, '--cmdline',
         'e5.lkpad=0000000000' if a.profile == 't512n' else '', '--out', files / 'boot.img')
     boot = json.loads((files / 'boot.json').read_text())
     expected_command = ('e5.lkpad=0000000000 ' if a.profile == 't512n' else '') + 'e5.part_v=2'
@@ -238,7 +247,7 @@ def main():
         shutil.copy2(TOP / 'openwrt' / n, files / n)
     (files / 'part-write.sh').write_bytes((TOP / 'openwrt/bundle/part-write.sh').read_bytes().replace(b'\r\n', b'\n'))
     (files / 'nv-persistence.py').write_bytes((TOP / 'openwrt/luci-app-t551m/root/usr/lib/e5/nv_persistence.py').read_bytes().replace(b'\r\n', b'\n'))
-    for src in ('openwrt/bundle/collect-device-files.sh', 'openwrt/overlay/usr/libexec/e5-gpt', 'tools/android-bootchain.sh'):
+    for src in ('openwrt/bundle/collect-device-files.sh', 'openwrt/overlay/usr/libexec/e5-gpt', 'tools/android-bootchain.sh', 'boot/storage.sh'):
         target = files / Path(src).name
         target.write_bytes((TOP / src).read_bytes().replace(b'\r\n', b'\n'))
         target.chmod(0o755)

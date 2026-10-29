@@ -390,20 +390,26 @@ class NVTests(unittest.TestCase):
         spec=importlib.util.spec_from_file_location('nv_android_flash',TOP/'openwrt/bundle/flash.py')
         flash=importlib.util.module_from_spec(spec);spec.loader.exec_module(flash)
         mapping={name:f'/dev/block/mmcblk0p{i+1}' for i,name in enumerate(nv.NAMES)}
-        by_path={mapping[n]:self.devices[n].read_bytes() for n in nv.NAMES}
+        by_path={mapping[n]:self.devices[n].read_bytes().ljust(1024,b'\0') for n in nv.NAMES}
         reads=[];uploads=[]
-        def read(android,script):
-            self.assertEqual(android.serial,'bound-device');reads.append(script)
-            return by_path[script.split()[-1]]
+        def pull(call,shell,script,local,expected_size):
+            reads.append(script);data=by_path[script.split()[-1]]
+            self.assertEqual(expected_size,len(data));local.write_bytes(data)
         def checked(stage,command):
             if 'for u in ' in command:
                 return '\n'.join(name+' '+Path(path).name for name,path in mapping.items())
+            if command.startswith('cat /sys/class/block/'):
+                return '2'
             return __import__('hashlib').sha256(by_path[command.split()[-1]]).hexdigest()
+        sys.path.insert(0,str(TOP/'installer'))
         gui=SimpleNamespace(backup_base=lambda:str(self.root/'android-pc'),
-            read_legacy=read,confirm_nv_recovery=unittest.mock.Mock(return_value=True))
+            adb=SimpleNamespace(serial='bound-device',call=unittest.mock.Mock(),shell=unittest.mock.Mock()),
+            confirm_nv_recovery=unittest.mock.Mock(return_value=True))
         with patch.object(flash,'GUI',gui),patch.object(flash,'SERIAL','bound-device'),patch.object(flash,'ANDROID_SLOT','b'), \
              patch.object(flash,'package_profile',return_value={'profile':'e5'}),patch.object(flash,'su_checked',side_effect=checked), \
+             patch.object(flash,'storage_script',return_value=''), \
              patch.object(flash,'F',str(SOURCE.parent)),patch.object(flash.runpy,'run_path',return_value=vars(nv)), \
+             patch('backend.binary_io.pull_binary',side_effect=pull), \
              patch.object(flash,'push',side_effect=lambda source,*args:uploads.append(Path(source).read_bytes())):
             flash.original_nv_recovery('working NV failed')
         self.assertEqual(len(reads),9);gui.confirm_nv_recovery.assert_called_once()
@@ -476,11 +482,10 @@ sync() {{ :; }}
     def test_image_boot_recovery_requires_per_image_cid_and_valid_original(self):
         raw=io.BytesIO();nv.factory_archive(self.root,raw,self.devices)
         new=self.restore(raw.getvalue());old=self.root/'old-image';old.mkdir()
-        cid=self.root/'cid';cid.write_text('a'*32)
         source=(TOP/'boot/nv-preserve.sh').read_text()
         code=source[source.index('nv_migrate_images()'):]
         code=code.replace('/nv-old',str(old)).replace('/nv-new',str(new))
-        code=code.replace('/sys/class/block/mmcblk0/device/cid',str(cid)).replace('/etc/nv-persistence.py',str(SOURCE))
+        code=code.replace('/etc/nv-persistence.py',str(SOURCE))
         code=code.replace('/run/nv-update.tar',str(self.root/'scratch-nv.tar'))
         prefix='''set -eu
 losetup() { [ "$1" != -f ] || echo /dev/fake; }
@@ -491,21 +496,24 @@ nv_archive_offline() { return 1; }
 nv_restore_offline() { echo INCORRECT_RESTORE; return 1; }
 chroot() { nvroot=$1; shift 2; command python3 "$@" --root "$nvroot"; }
 nv_python_offline() { chroot "$1" /usr/bin/python3 - "$2" < "'''+str(SOURCE)+'''"; }
+e5_storage_disk() { echo "$TEST_DISK"; }
+e5_storage_identity() { [ "$1" = "$TEST_DISK" ] || return 1; printf '%032d\n' 0 | tr 0 a; }
 '''
         marker=new/'etc/e5/nv-update-original'
         for value,success in [('',False),('NV-ORIGINAL-RECOVERY-V1 e5 '+'b'*32,False),
                               ('NV-ORIGINAL-RECOVERY-V1 e5 '+'a'*32,True)]:
             if value:marker.write_text(value)
             else:marker.unlink(missing_ok=True)
-            result=subprocess.run(['busybox','ash'],input=prefix+code+'\nnv_migrate_images old new || exit 17\n',text=True,capture_output=True)
-            self.assertEqual(result.returncode==0,success,result.stderr)
-            self.assertNotIn('INCORRECT_RESTORE',result.stdout)
+            for disk in ('mmcblk0','sda'):
+                result=subprocess.run(['busybox','ash'],input='TEST_DISK='+disk+'\n'+prefix+code+'\nnv_migrate_images old new || exit 17\n',text=True,capture_output=True)
+                self.assertEqual(result.returncode==0,success,(disk,result.stderr))
+                self.assertNotIn('INCORRECT_RESTORE',result.stdout)
         # The token is kept until real NV startup: power loss before renaming
         # the image cannot erase the user's already persisted decision.
         self.assertTrue(marker.exists())
 
     def test_android_reinstall_preserves_nv_before_write_and_resumes_from_receipt(self):
-        base=self.root/'android';stage=base/'stage';(stage/'view').mkdir(parents=True)
+        base=self.root/'android';stage=base/'stage';(stage/'view/dev').mkdir(parents=True)
         shutil.copytree(self.root/'etc',stage/'view/etc')
         shutil.copytree(self.root/'opt',stage/'view/opt')
         shutil.copyfile(SOURCE,base/'e5-nv-persistence.py')
@@ -533,6 +541,53 @@ chroot() { nvroot=$1; shift 2; command python3 "$@" --root "$nvroot"; }
         rejected=subprocess.run(['busybox','ash'],input=harness.replace('MOUNT_OK=yes','MOUNT_OK=no')+code,text=True,capture_output=True)
         self.assertNotEqual(rejected.returncode,0)
         self.assertFalse(receipt.exists())
+
+    def test_android_nv_python_binds_entropy_device_and_unmounts_on_failure(self):
+        source=(TOP/'openwrt/bundle/part-write.sh').read_text()
+        helper=source[source.index('nv_python() {'):source.index('\n[ ! -L "$nvbase" ]')]
+        stage=self.root/'python-root';(stage/'view/dev').mkdir(parents=True)
+        script=self.root/'empty.py';script.write_text('')
+        harness=f'''set -eu
+stage="{stage}"; nvhelper="{script}"; nvdevbound=0; active=0
+mount() {{ [ "$1" = --bind ] && [ "$2" = /dev ]; active=1; }}
+umount() {{ [ "$active" = 1 ]; active=0; }}
+chroot() {{ [ "$active" = 1 ] || exit 98; return "$PYTHON_RC"; }}
+'''
+        for rc in (0,17):
+            result=subprocess.run(['busybox','ash'],input=harness+helper+f'''
+PYTHON_RC={rc}
+rc=0
+nv_python verify || rc=$?
+[ "$rc" = {rc} ] && [ "$active" = 0 ] && [ "$nvdevbound" = 0 ]
+''',text=True,capture_output=True)
+            self.assertEqual(result.returncode,0,result.stderr)
+        cleanup=source[source.index('cleanup() {'):source.index('trap cleanup EXIT')]
+        self.assertLess(cleanup.index('umount "$stage/view/dev"'),cleanup.index('umount "$stage/view"'))
+
+    def test_reinstall_bound_old_preparation_has_no_nv_but_unreadable_filesystem_is_protected(self):
+        base=self.root/'prepared';stage=base/'stage';(stage/'view').mkdir(parents=True)
+        shutil.copyfile(SOURCE,base/'e5-nv-persistence.py')
+        source=(TOP/'openwrt/bundle/part-write.sh').read_text()
+        code=source[source.index('nvbase='):source.index("echo '1/4 writing root image'")].replace('/data/local/tmp/',str(base)+'/')
+        token='a'*32;prior='c'*32;dev=base/'root'
+        harness=f'''set -eu
+mount() {{ return 1; }}
+sync() {{ :; }}
+stage="{stage}"; token={token}; dev="{dev}"; mounted=0; nv_mode=--nv-check
+'''
+        receipt=base/'e5-nv-backups'/f'{token}.receipt'
+        blank=(b'E5-PART-PREPARED-V2 '+prior.encode()+b'\n').ljust(8192,b'\0')
+        for fault,accepted in (('unbound',False),('bound',True),('wrong',False),('ext4',False),('f2fs',False)):
+            receipt.unlink(missing_ok=True);raw=bytearray(blank)
+            if fault=='ext4':raw[1080:1082]=b'\x53\xef'
+            if fault=='f2fs':raw[1024:1028]=bytes.fromhex('1020f5f2')
+            dev.write_bytes(raw)
+            env='' if fault=='unbound' else 'E5_PREPARED_TOKEN='+('d'*32 if fault=='wrong' else prior)+'\n'
+            result=subprocess.run(['busybox','ash'],input=harness+env+code,text=True,capture_output=True)
+            self.assertEqual(result.returncode==0,accepted,(fault,result.stderr))
+            self.assertEqual(receipt.exists(),accepted)
+            if accepted:self.assertEqual(receipt.read_text().split()[2],'no')
+            self.assertEqual(dev.read_bytes(),bytes(raw))
 
     def test_legacy_keep_config_cannot_ignore_nv_restore_failure_in_conditional(self):
         source=(TOP/'openwrt/device-install-image.sh').read_text()

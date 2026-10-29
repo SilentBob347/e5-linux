@@ -233,11 +233,6 @@ export function info(slot) {
     let dns=[];
     for(let w in [wan,wan6])for(let ip in w['dns-server'] || [])if(index(dns,ip)<0)push(dns,ip);
     let atd=exists('/run/t551m-at2/cmd.sock') && index(rd('/proc/net/unix'),'/run/t551m-at2/cmd.sock')>=0;
-    let vpn=rd('/etc/mu300/vpn.conf'), engine=null, enabled=false;
-    for(let line in split(vpn,'\n')) {
-        if(line=='ENABLE=1')enabled=true;
-        if(substr(line,0,7)=='ENGINE=')engine=text(substr(line,7));
-    }
     let ht=replace(wifi.htmode || '',/[^0-9]/g,'');
     return {ts:now,uptime:int(rd('/proc/uptime')),host:text(c.get('system','@system[0]','hostname') || rd('/proc/sys/kernel/hostname')),
         model:text(rd('/tmp/sysinfo/model') || replace(rd('/proc/device-tree/model'),/\x00/g,'')),fw,kernel,
@@ -254,9 +249,8 @@ export function info(slot) {
         lan:{leases:length(leases),ip:address(rows4,lan,false),list:leases},
         modem:{alive:cached.alive && exists('/dev/wwan0at0')?1:0,atd:atd?1:0,data_paused:!viewing || !wan.up?1:0,viewing_data_sim:viewing?1:0,data_sim:data_slot in ['0','1']?int(data_slot):null,
             sims:map(['0','1'],n=>({slot:int(n),state:atd?sim_state(n):'unknown'}))},
-        boot:boot(),capabilities:{vpn:executable('/etc/init.d/mu300-vpn')?1:0,dualboot:executable('/opt/e5/e5-next-boot')?1:0},
-        conns:conntrack(),traffic:obj('/run/unisoc-modem-traffic/view'+(slot in ['0','1']?'-sim'+slot:'')+'.json'),
-        vpn:{enabled:enabled?1:0,engine,up:exists('/sys/class/net/xtun') || exists('/sys/class/net/sbtun')?1:0}};
+        boot:boot(),capabilities:{dualboot:executable('/opt/e5/e5-next-boot')?1:0},
+        conns:conntrack(),traffic:obj('/run/unisoc-modem-traffic/view'+(slot in ['0','1']?'-sim'+slot:'')+'.json')};
 };
 
 export function rates(slot) {

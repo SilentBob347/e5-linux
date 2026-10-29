@@ -18,6 +18,7 @@ export PATH=/bin:/sbin:/usr/bin:/usr/sbin HOME=/root TERM=vt100
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 . /etc/boot-args.sh
+. /etc/storage.sh
 # 4, not 7: at 7 each info line costs ~10 ms of synchronous serial console
 # output in whoever printed it, and the module-loading phase prints ~2000 of
 # them (~20 s of boot time, measured 2026-10-12 on T551M). The E5-LINUX:
@@ -160,16 +161,13 @@ load_linux_slot || log 'stage=linux-slot-unknown persistent-boot-writes-disabled
 find_partitions() {
     local n=0 limit=$(( ${1:-20} * 10 )) name key value part
     while [ "$n" -lt "$limit" ]; do
-        for u in /sys/class/block/mmcblk*p*/uevent; do
-            [ -r "$u" ] || continue
-            part=
-            while IFS='=' read -r key value; do
-                [ "$key" != PARTNAME ] || part=$value
-            done < "$u"
-            name=${u%/uevent}; name=${name##*/}
-            [ "$part" != misc ] || misc=/dev/$name
-            [ -z "$linux_slot" ] || [ "$part" != "boot_$linux_slot" ] || bootb=/dev/$name
-        done
+        internal=$(e5_storage_disk) || internal=
+        if [ -n "$internal" ]; then
+            name=$(e5_storage_part misc "$internal") && misc=/dev/$name
+            if [ -n "$linux_slot" ]; then
+                name=$(e5_storage_part "boot_$linux_slot" "$internal") && bootb=/dev/$name
+            fi
+        fi
         [ -b "$misc" ] && return 0
         n=$((n + 1))
         /bin/busybox usleep 100000
@@ -305,12 +303,10 @@ early_device_firmware() {
     local n=0 dev= emmc= image=
     [ -f /lib/firmware/wcnmodem.bin ] && return 0
     while [ -z "$dev" ] && [ "$n" -lt 10 ]; do
-        for u in /sys/class/block/mmcblk*p*/uevent; do
-            grep -qx PARTNAME=userdata "$u" 2>/dev/null && dev=/dev/$(basename "$(dirname "$u")")
-        done
+        emmc=$(e5_storage_disk) && candidate=$(e5_storage_part userdata "$emmc") && dev=/dev/$candidate
         [ -n "$dev" ] || { n=$((n + 1)); mdev -s; sleep 1; }
     done
-    emmc=${dev#/dev/}; emmc=${emmc%%p*}
+    [ -n "$dev" ] || return 1
     # A system installed in its own partition keeps its firmware on e5root, and
     # by then the payload on userdata is gone (install-part.sh removes it), so
     # this is the only source.  It cannot be gated on the two-stage marker in
@@ -321,7 +317,9 @@ early_device_firmware() {
     # harmless when there is no e5root or no firmware there, and the search does
     # not wait for userdata -- mdev may not have settled it yet.
     mkdir -p /tmp/part-fw /lib/firmware
-    for u in /sys/class/block/mmcblk*p*/uevent; do
+    candidate=$(e5_storage_part e5root "$emmc") || candidate=
+    for u in /sys/class/block/$candidate/uevent; do
+        [ -r "$u" ] || continue
         grep -qx PARTNAME=e5root "$u" 2>/dev/null || continue
         if mount -t ext4 -o ro,noload /dev/$(basename "$(dirname "$u")") /tmp/part-fw; then
             if [ -f /tmp/part-fw/etc/e5/part-root ] && [ -s /tmp/part-fw/lib/firmware/wcnmodem.bin ]; then
@@ -387,7 +385,7 @@ if [ -f /etc/module-order ]; then
         # It precedes WCN (and some profiles load WCN only after switch_root),
         # so waiting for wcn_bsp leaves touch permanently unbound with ENOENT.
         case "$module" in
-            st7123.ko|wcn_bsp.ko) early_device_firmware ;;
+            st7123.ko|axs15205.ko|wcn_bsp.ko) early_device_firmware ;;
         esac
         if insmod "/linux-modules/$module" 2>/run/insmod.err; then
             loaded=$((loaded + 1))
@@ -528,9 +526,7 @@ OPENWRT_FILE=/data/e5linux/openwrt.ext4
 w=$(echo " $(cat /proc/cmdline)" | sed -n 's/.* e5\.openwrt=\([A-Za-z0-9._-]*\).*/\1/p')
 [ -n "$w" ] && OPENWRT_FILE=/data/e5linux/$w e5_trial=1
 data=
-for u in /sys/class/block/mmcblk*p*/uevent; do
-    grep -qx PARTNAME=userdata "$u" 2>/dev/null && data=/dev/$(basename "$(dirname "$u")")
-done
+internal=$(e5_storage_disk) && candidate=$(e5_storage_part userdata "$internal") && data=/dev/$candidate
 log "stage=data-partition dev=${data:-none}"
 
 has_init() { [ -x "$1/lib/systemd/systemd" ] || [ -x "$1/sbin/init" ]; }
@@ -581,7 +577,7 @@ sd_root() {
     [ -n "$misc" ] || return 1
     sd_metadata || true
     [ -z "$SDMETA_INVALID" ] || return 1
-    emmc=${misc#/dev/}; emmc=${emmc%%p*}
+    emmc=$(e5_storage_parent "${misc##*/}") || return 1
     SDROOT= SDTRIAL= best=-1
     for d in /sys/class/block/mmcblk*; do
         n=${d##*/}
@@ -725,8 +721,9 @@ part_root() {
     local u e dev
     PARTAUTO=
     [ -n "$misc" ] || return 1
-    e=${misc#/dev/}; e=${e%%p*}
-    for u in /sys/class/block/${e}p*/uevent; do
+    e=$(e5_storage_parent "${misc##*/}") || return 1
+    candidate=$(e5_storage_part e5root "$e") || return 1
+    for u in /sys/class/block/$candidate/uevent; do
         grep -qx PARTNAME=e5root "$u" 2>/dev/null || continue
         dev=/dev/$(basename "$(dirname "$u")")
         mount -t ext4 -o ro,noload,noatime "$dev" /sdtry 2>/dev/null || continue

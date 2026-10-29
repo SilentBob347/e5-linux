@@ -34,6 +34,25 @@ def fixture(block):
     return bytes(first),bytes(last),sectors
 
 
+def snapshot(block, sectors=64*2097152):
+    factor=block//512;total=sectors//factor;count=128;rows=(count*128+block-1)//block
+    table=bytearray(count*128)
+    for number,name,start,end in ((1,'misc',2048,4095),(2,'userdata',4096,16*2097152-1)):
+        e=bytearray(128);e[:16]=uuid.UUID('0fc63daf-8483-4772-8e79-3d69d8477de4').bytes_le
+        e[16:32]=uuid.UUID(int=number).bytes_le
+        struct.pack_into('<QQ',e,32,start//factor,(end+1)//factor-1)
+        text=name.encode('utf-16-le');e[56:56+len(text)]=text;table[(number-1)*128:number*128]=e
+    def header(at,other,entries):
+        h=bytearray(block);h[:8]=b'EFI PART';struct.pack_into('<II',h,8,0x10000,92)
+        struct.pack_into('<QQQQ',h,24,at,other,2+rows,total-2-rows)
+        h[56:72]=uuid.UUID(int=999).bytes_le
+        struct.pack_into('<QIII',h,72,entries,count,128,zlib.crc32(table))
+        struct.pack_into('<I',h,16,zlib.crc32(h[:92]));return h
+    first=bytes(block)+header(1,total-1,2)+table
+    last=table+header(total-1,1,total-1-rows)
+    return first,last,sectors
+
+
 class StorageUFS(unittest.TestCase):
     def test_512_and_4096_have_same_public_geometry(self):
         results=[gpt.gpt_space(*fixture(n)) for n in (512,4096)]
@@ -82,6 +101,26 @@ class StorageUFS(unittest.TestCase):
         self.assertEqual(storage.parse_inventory(text)['START'],2048)
         for bad in (text.replace('DISK=sda','DISK=sdb'),text.replace('START=2048','START=2049'),text.replace('STORAGE_KIND=ufs','STORAGE_KIND=emmc'),text.replace('a'*32,'not-unique')):
             with self.assertRaises(ValueError):storage.parse_inventory(bad)
+
+    def test_restore_original_4kn_and_512_gpt_after_shrink_or_free_install(self):
+        from backend import uninstall
+        for block in (512,4096):
+            with self.subTest(block=block):
+                first,last,total=snapshot(block)
+                current=gpt.gpt_add_root(first,last,total,20*2097152,8*2097152,'e5root')
+                restored,_,_,wipe=uninstall.device_layout(current,total,'e5root')
+                self.assertFalse(wipe)
+                self.assertEqual(restored,[first,last])
+                # Simulate the actual carve result by shrinking the userdata
+                # entry, then adding root into exactly its former tail.
+                updated=bytearray(uninstall.table(first));factor=block//512
+                target=8*2097152
+                struct.pack_into('<Q',updated,128+40,(4096+target)//factor-1)
+                shrunk=uninstall.with_table((first,last),updated,total)
+                carved=gpt.gpt_add_root(*shrunk,total,4096+target,16*2097152-4096-target,'e5root')
+                restored,_,_,wipe=uninstall.restored_layout((first,last),carved,total,'e5root')
+                self.assertTrue(wipe)
+                self.assertEqual(restored,[first,last])
 
 
 if __name__=='__main__':unittest.main()

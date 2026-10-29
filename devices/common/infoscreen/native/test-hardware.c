@@ -198,11 +198,12 @@ static void fixture(VoiceHardware *h) {
         }
     }
     h->gains = json_object_new_object();
+    assert(volume_config(h, NULL));
     h->volume = h->ceiling = 15;
     h->call_card = -1;
     h->rate = 8000;
     for (unsigned i = 0; i < 256; i++)
-        for (unsigned j = 0; j < 7; j++)
+        for (unsigned j = 0; j < 15; j++)
             h->curves[i][j] = (j + 1) * 100;
     h->a = (Alsa){.strerror = err,
                   .ctl_elem_info_malloc = info_alloc,
@@ -290,6 +291,35 @@ int main(void) {
             }
         }
     }
+    /* Ten-step recipient calibration reaches the real maximum on both routes;
+     * legacy tables and Bluetooth keep their original seven-step behavior. */
+    Json *stock = json_tokener_parse("{\"steps\":10,\"dac_gain\":{\"0\":25,\"2\":25,\"4\":24,\"5\":24,\"7\":26,\"9\":26,\"11\":24,\"12\":24}}");
+    json_object_object_add(h->routes, "VOICE_VOLUME", stock);
+    assert(volume_config(h, &error));
+    for (unsigned band = 0; band < 4; band++)
+        for (unsigned speaker = 0; speaker < 2; speaker++) {
+            h->band = band; h->speaker = speaker; h->ceiling = 15;
+            int previous = 0;
+            for (int level = 0; level <= 15; level++) {
+                h->volume = level;
+                int step = dsp_volume(h);
+                assert(step >= previous && step >= 1 && step <= 10);
+                previous = step;
+            }
+            assert(dsp_volume(h) == 10);
+            assert(volume(h, true, &error));
+            assert(h->applied_gain == (band < 2 ? (speaker ? 26 : 25) : 24));
+        }
+    h->bluetooth = true;
+    assert(dsp_volume(h) == 7);
+    assert(volume(h, true, &error) && h->applied_gain == 24);
+    h->bluetooth = false;
+    json_object_object_add(stock, "steps", json_object_new_int(16));
+    assert(!volume_config(h, &error));
+    g_clear_error(&error);
+    json_object_object_del(h->routes, "VOICE_VOLUME");
+    assert(volume_config(h, &error) && h->volume_steps == 7);
+    h->band = 0; h->speaker = false;
     AudioRequest request = {
         .live = true, .card = 0, .route = "receiver", .volume = 15, .rate = 8000};
     Json *state = audio_apply(h, &request, &error);

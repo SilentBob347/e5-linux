@@ -115,7 +115,7 @@ keep_config() {
         }
         if [ "$nv_policy" = original ] && [ -n "$running_image" ]; then
             printf 'NV-ORIGINAL-RECOVERY-V1 %s %s\n' "$(cat "$N/etc/e5/device-profile")" \
-                "$(cat /sys/class/block/mmcblk0/device/cid)" > "$N/etc/e5/nv-update-original" || return 1
+                "$(. /usr/lib/e5/storage.sh; disk=$(e5_storage_disk); e5_storage_identity "$disk")" > "$N/etc/e5/nv-update-original" || return 1
         fi
         rm -f "$nvarchive"
     fi
@@ -139,6 +139,8 @@ device_files_tar() {
                    lib/firmware/aw87xxx_acf.bin lib/firmware/sprd \
                    lib/firmware/aw883xx_acf.bin lib/firmware/awinic_params.bin \
                    lib/firmware/sitronix_firmware_huaying.dump lib/firmware/sitronix \
+                   lib/firmware/changxing60-audio_config.xml lib/firmware/changxing60-audio_route.xml \
+                   lib/firmware/changxing60-audio_pga.xml lib/firmware/axs15205 \
                    lib/firmware/yuanhang41s-HiFi.conf lib/firmware/yuanhang41s-media-max \
                    lib/firmware/android-firmware-slot opt/e5/android; do
                    [ -e "$f" ] && echo "$f"; done)

@@ -89,7 +89,8 @@ class TwoStage(unittest.TestCase):
                     install_preflight=lambda:events.append('preflight'),
                     arm_slot_b=lambda:events.append('arm'))
                 with patch.dict(api['finish'].__globals__,probe=lambda _:rows,flash_boot=flash,
-                                wait_android=lambda *args:events.append('wait')):
+                                wait_android=lambda *args:events.append('wait'),
+                                gpt_ranges=lambda *args:('mmcblk0',20000000,[('gpt-primary.bin',0,34),('gpt-backup.bin',20000000-33,33)])):
                     if fault in ('none','rearming'):
                         api['finish'](g,SimpleNamespace(),path,state)
                         self.assertEqual(events,['preflight','boot','arm','reboot','wait'])
@@ -214,6 +215,10 @@ class TwoStage(unittest.TestCase):
                          'sys/class/block/mmcblk0p70/holders', 'proc/self', 'usr/bin'):
                 (root/name).mkdir(parents=True, exist_ok=True)
             node=root/'sys/class/block/mmcblk0p70'
+            (root/'sys/class/block/mmcblk0/device/type').write_text('MMC')
+            (node/'partition').write_text('70')
+            actual=root/'sys/class/block/mmcblk0/mmcblk0p70'
+            node.rename(actual); node.symlink_to(actual, target_is_directory=True)
             (node/'uevent').write_text('PARTNAME=userdata\n')
             (node/'start').write_text('2048\n'); (node/'size').write_text('16777216\n')
             (node/'dev').write_text('179:70\n')
@@ -235,7 +240,7 @@ class TwoStage(unittest.TestCase):
             tool.write_text('#!/bin/sh\necho "$2" >> "'+str(root/'calls')+'"\n'
                             'if [ "$2" = list ]; then echo "71 8390656 16779263 e5root"; fi\n')
             tool.chmod(0o755)
-            code=((TOP/'boot/boot-args.sh').read_text()+'\n'+
+            code=((TOP/'boot/storage.sh').read_text()+'\n'+(TOP/'boot/boot-args.sh').read_text()+'\n'+
                   (TOP/'boot/part-prepare.sh').read_text()).replace('[ -b ', '[ -f ')
             for prefix in ('/etc','/sys','/proc','/dev','/run','/usr/bin'):
                 code=code.replace(prefix+'/', str(root)+prefix+'/')

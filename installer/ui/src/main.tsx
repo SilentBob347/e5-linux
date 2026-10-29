@@ -47,10 +47,14 @@ function App() {
   const [planOrigin, setPlanOrigin] = useState<View>('install');
   const [size, setSize] = useState('4');
   const [grow, setGrow] = useState(true);
+  const [shrinkMode, setShrinkMode] = useState('prefer-online');
   const [host, setHost] = useState('192.168.9.1');
   const [password, setPassword] = useState('');
   const [accepted, setAccepted] = useState(false);
   const [nvInput, setNvInput] = useState('');
+  const [onlineInput, setOnlineInput] = useState('');
+  const [onlineDismissed, setOnlineDismissed] = useState(false);
+  useEffect(() => {setOnlineInput('');setOnlineDismissed(false);}, [tx?.online_fallback?.nonce]);
   const [nvDismissed, setNvDismissed] = useState(false);
   const [resetPrompt, setResetPrompt] = useState<ResetPrompt>();
   useEffect(() => {setNvDismissed(false);setNvInput('');}, [tx?.nv_recovery?.nonce]);
@@ -220,7 +224,7 @@ function App() {
     if (next === 'update') setMethod('update');
   };
   const plan = async (resetToken?: string) => {
-    const value = await task(() => request<Transaction | ResetPrompt>('plan', {serial, choices: {method, size_gib: Number(size), grow, host}, password, reset_token:resetToken}));
+    const value = await task(() => request<Transaction | ResetPrompt>('plan', {serial, choices: {method, size_gib: Number(size), grow, host, shrink_strategy:shrinkMode, wipe:method === 'part' && shrinkMode === 'format'}, password, reset_token:resetToken}));
     if (value && 'confirmation_required' in value) {
       setResetPrompt(value); reportError(value.reason); return;
     }
@@ -232,6 +236,7 @@ function App() {
     if (value) {acceptTransaction(value); setView('progress'); setLogOpen(true); setSince(Date.now()); setTransfer(undefined);}
   };
   const continueRecord = async (record: Transaction) => {
+    if (record.online_fallback?.state === 'awaiting') {acceptTransaction(record,false);setView('progress');setOnlineDismissed(false);return;}
     if (record.nv_recovery?.state === 'awaiting') {
       acceptTransaction(record, false); setView('progress'); setLogOpen(true);
       setNvDismissed(false); setNvInput(''); return;
@@ -277,6 +282,7 @@ function App() {
     const observer = new ResizeObserver(revealCurrent);observer.observe(list);
     return () => observer.disconnect();
   }, [current, lang]);
+  const waitingOnline = tx?.online_fallback?.state === 'awaiting';
   const waitingNV = tx?.status === 'waiting_user' && tx?.stage === 'nv_recovery' && tx.nv_recovery?.state === 'awaiting';
   const active = tx && ['running', 'waiting_device', 'waiting_user'].includes(tx.status);
   const openHelp = useCallback(() => {
@@ -352,6 +358,7 @@ function App() {
         {view !== 'update' && view !== 'boot' && <section><h2>{view === 'advanced' ? t.advanced : t.install}</h2><div className="method-options" role="group" aria-label={view === 'advanced' ? t.advanced : t.install}>{(view === 'advanced' ? ['reinstall','image','uninstall'] : ['tf','part','reinstall']).map(m => <button disabled={busy} key={m} aria-pressed={method === m} className={method === m ? 'selected' : ''} onClick={() => setMethod(m)}>{m === 'tf' ? <Usb size={17}/> : <HardDrive size={17}/>}{(t as unknown as Record<string,string>)[m]}{(m === 'tf' && device?.tf || m === 'reinstall' && device?.existing) && <span>{t.recommended}</span>}</button>)}</div>
           {method === 'uninstall' && <div className="alert danger"><CircleAlert size={18}/><p>{t.uninstallHelp}</p></div>}
           {method === 'image' && <div className="alert danger"><CircleAlert size={18}/><strong>{t.experimental}</strong></div>}
+          {method === 'part' && <label className="size-field">{t.shrinkMethod}<select disabled={busy} value={shrinkMode} onChange={e => setShrinkMode(e.target.value)}><option value="prefer-online">{t.shrinkPrefer}</option><option value="format">{t.shrinkFormat}</option></select></label>}
           {['part','image'].includes(method) && <label className="size-field">{t.size}<input disabled={busy} type="number" min="2" step="0.25" value={size} onChange={e => setSize(e.target.value)}/></label>}
           {['part','reinstall'].includes(method) && <label className="checkbox-label"><input disabled={busy} type="checkbox" checked={grow} onChange={e => setGrow(e.target.checked)}/><div>{t.grow}<small>{t.growHelp}</small></div></label>}
         </section>}
@@ -359,7 +366,9 @@ function App() {
       </>}
       {view === 'plan' && tx && <><div className="eyebrow">{tx.choices.method === 'uninstall' ? t.reviewUninstall : t.review}</div><h1 tabIndex={-1}>{tx.device.model}</h1><p className="intro">{tx.package.name} · ••••{tx.device.serial.slice(-4)}</p>{tx.choices.method === 'uninstall' && impactNotice}<div className="page-scroll scroll-area"><section>{tx.choices.method === 'uninstall' && tx.plan.layout_source === 'device' && <p className="device-hint">{t.uninstallDeviceBounds}</p>}<dl className="plan-list"><div><dt>{tx.choices.method === 'uninstall' ? t.operationMethod : t.installMethod}</dt><dd>{tx.choices.method === 'boot' ? t.boot : tx.choices.method === 'update' ? t.update : (t as unknown as Record<string,string>)[tx.choices.method]}</dd></div><div><dt>{tx.choices.method === 'uninstall' ? t.uninstallTarget : t.target}</dt><dd>{tx.plan.target}</dd></div><div><dt>{tx.choices.method === 'uninstall' ? t.androidAllocation : t.android}</dt><dd>{tx.choices.method === 'uninstall' && <>{gib(tx.plan.previous_android_bytes)} → </>}{gib(tx.plan.android_bytes)}</dd></div><div><dt>{tx.choices.method === 'uninstall' ? t.release : t.allocation}</dt><dd>{tx.choices.method === 'boot' ? '—' : gib(tx.plan.openwrt_bytes)}</dd></div>{tx.choices.method === 'uninstall' ? <><div><dt>{t.reclaim}</dt><dd>{gib(tx.plan.reclaimed_bytes)}</dd></div>{!!tx.plan.released_unallocated_bytes && <div><dt>{t.unallocatedRelease}</dt><dd>{gib(tx.plan.released_unallocated_bytes)}</dd></div>}</> : <div><dt>{t.grow}</dt><dd>{tx.plan.grow ? <Check size={17}/> : '—'}</dd></div>}</dl></section>
         {tx.choices.method !== 'uninstall' && impactNotice}
-        {(tx.plan.offline || tx.plan.two_stage) && <div className="alert"><RefreshCw size={20}/><p>{tx.choices.method === 'uninstall' ? t.uninstallFirstBoot : t.firstBoot}</p></div>}
+        {tx.plan.shrink_strategy === 'online-f2fs' && <div className="alert"><ShieldCheck size={20}/><div><strong>{t.onlineTitle}</strong><p>{t.onlineDesc}</p></div></div>}
+        {tx.plan.online_unavailable && <div className="alert danger"><CircleAlert size={20}/><p>{t.onlineUnavailable} {tx.plan.online_unavailable}</p></div>}
+        {tx.plan.shrink_strategy !== 'online-f2fs' && (tx.plan.offline || tx.plan.two_stage) && <div className="alert"><RefreshCw size={20}/><p>{tx.choices.method === 'uninstall' ? t.uninstallFirstBoot : t.firstBoot}</p></div>}
         </div><label className="checkbox-label confirmation"><input disabled={busy} type="checkbox" checked={accepted} onChange={e => setAccepted(e.target.checked)}/>{tx.choices.method === 'uninstall' ? t.uninstallAccept : t.accept}</label>
         <div className="actions"><Button disabled={busy} variant="outline" onClick={() => {setView(planOrigin); setAccepted(false);}}>{t.back}</Button><Button variant={tx.plan.wipe || tx.choices.method === 'uninstall' ? 'destructive' : 'default'} disabled={!accepted || busy} onClick={() => start('start')}>{tx.choices.method === 'uninstall' ? t.startUninstall : t.start}<ArrowRight size={16}/></Button></div>
       </>}
@@ -376,13 +385,14 @@ function App() {
             {transfer && tx.status === 'running' && <div className="transfer"><div><span>{transfer.name}</span><span>{Math.floor(transfer.bytes/transfer.total*100)}%</span></div><progress value={transfer.bytes} max={transfer.total}/><small>{t.bytes}: {transfer.bytes.toLocaleString()} / {transfer.total.toLocaleString()} B · {t.speed}: {(transfer.bytes_per_second/1048576).toFixed(1)} MiB/s</small></div>}
             {tx.status.startsWith('waiting') && <><p className="waiting-guidance">{tx.choices.method === 'uninstall' && tx.stage === 'uninstall_offline' ? t.uninstallWaiting : waitingNV ? t.nvRecoveryWaiting : tx.stage === 'openwrt_boot' ? t.waitingOpenwrt : t.waitingAndroid}</p><Button variant="ghost" className="context-help" onClick={openHelp}><CircleHelp size={16}/>{help.currentHelp}</Button></>}
             {waitingForAndroid && wirelessControls(true)}
+            {waitingOnline && <Button variant="outline" onClick={() => {setOnlineDismissed(false);setOnlineInput('');}}>{t.onlineFallbackTitle}</Button>}
             {waitingNV && <Button variant="outline" onClick={() => {setNvDismissed(false);setNvInput('');}}>{t.nvRecovery}</Button>}
             {tx.choices.method === 'uninstall' && (tx.uninstall_armed || tx.unsafe) && <div className="alert danger"><CircleAlert size={19}/><p>{tx.uninstall_armed ? t.uninstallArmedWarning : t.uninstallUncertain}</p></div>}
             {tx.unsafe && <div className="alert danger"><ShieldCheck size={19}/><p>{t.unsafe}</p></div>}
             {tx.error && <div className="alert danger"><CircleAlert size={20}/><div><p className="error-message">{tx.error.message}</p><Button className="copy-diagnostics" variant="outline" disabled={busy} onClick={copyDiagnostics}><Copy size={15}/>{t.copyDiagnostics}</Button></div></div>}
           </section>}</>} </div>
         {waitingForOpenwrt && <div className="verification-controls"><div className="form-grid"><label>{t.host}<input disabled={busy} value={host} onChange={e => setHost(e.target.value)} autoComplete="off"/></label><label>{t.password}<input disabled={busy} type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="off"/></label></div>{tx.choices.method !== 'uninstall' && <p className="device-hint login-hint">{['update','boot'].includes(tx.choices.method) ? t.existingLogin : t.defaultLogin}</p>}{tx.details?.verification_error && <p className="verification-error" role="status">{tx.details.verification_error}</p>}</div>}
-        {tx.status !== 'completed' && !waitingNV && <div className="actions">{waitingForOpenwrt && <Button disabled={busy || !host.trim()} onClick={() => task(async () => (await request<{accepted:boolean}>('verify_openwrt', {transaction:tx.id, host:host.trim(), password})).accepted, t.verificationRequested)}><CheckCircle2 size={16}/>{t.confirmOpenwrt}</Button>}{active ? <Button variant="outline" disabled={busy} onClick={() => task(async () => (await request<{accepted:boolean}>('cancel')).accepted, t.pauseRequested)}><Pause size={16}/>{t.pause}</Button> : <Button disabled={busy || tx.error?.retryable === false} onClick={() => start('retry')}>{t.retry}<RotateCcw size={16}/></Button>}</div>
+        {tx.status !== 'completed' && !waitingNV && !waitingOnline && <div className="actions">{waitingForOpenwrt && <Button disabled={busy || !host.trim()} onClick={() => task(async () => (await request<{accepted:boolean}>('verify_openwrt', {transaction:tx.id, host:host.trim(), password})).accepted, t.verificationRequested)}><CheckCircle2 size={16}/>{t.confirmOpenwrt}</Button>}{active ? <Button variant="outline" disabled={busy} onClick={() => task(async () => (await request<{accepted:boolean}>('cancel')).accepted, t.pauseRequested)}><Pause size={16}/>{t.pause}</Button> : <Button disabled={busy || tx.error?.retryable === false} onClick={() => start('retry')}>{t.retry}<RotateCcw size={16}/></Button>}</div>
         }
         <div className="backup-actions"><Button disabled={busy} variant="outline" onClick={exportBackup}><Download size={16}/>{t.exportBackup}</Button><Button disabled={busy} variant="ghost" onClick={openData}><FolderOpen size={16}/>{t.openData}</Button></div>
       </>}
@@ -393,6 +403,16 @@ function App() {
     </main></div><footer><span><ShieldCheck size={13}/>OpenWrt Installer · v1.0</span><span>USB / SSH · {pkg?.profile || '—'}</span></footer>
     <Suspense fallback={<div className="help-loading" role="status"><LoaderCircle size={17} className="spin"/>{t.running}</div>}>{helpOpen && <HelpCenter language={lang} open={helpOpen} onOpenChange={setHelpOpen} initialTopic={helpTopic} onGuide={showGuide}/>}
     {guideOpen && <GettingStarted language={lang} open={guideOpen} onOpenChange={changeGuide}/>}</Suspense>
+    {waitingOnline && !onlineDismissed && <Dialog open onOpenChange={open => {if (!open) {setOnlineDismissed(true);setOnlineInput('');}}}>
+      <DialogContent closeLabel={t.onlineCancel}>
+        <div className="dialog-heading"><DialogTitle>{t.onlineFallbackTitle}</DialogTitle><DialogDescription>{t.onlineFallbackDesc}</DialogDescription></div>
+        <div className="scroll-area"><p className="error-message">{tx?.online_fallback?.reason}</p><label>yes<input value={onlineInput} onChange={e => setOnlineInput(e.target.value)} autoComplete="off" spellCheck={false} placeholder="yes"/></label></div>
+        <div className="dialog-footer"><Button variant="outline" onClick={() => {setOnlineDismissed(true);setOnlineInput('');}}>{t.onlineCancel}</Button><Button variant="destructive" disabled={busy || onlineInput !== 'yes'} onClick={() => void task(async () => {
+          const next = await request<Transaction>('online_fallback',{transaction:tx!.id,nonce:tx!.online_fallback!.nonce,confirmation:onlineInput});
+          acceptTransaction(next);setAccepted(false);setView('plan');setOnlineInput('');
+        })}>{t.onlineFallbackAction}</Button></div>
+      </DialogContent>
+    </Dialog>}
     {waitingNV && !nvDismissed && <Dialog open onOpenChange={open => {if (!open) setNvDismissed(true);}}>
       <DialogContent closeLabel={t.nvRecoveryCancel}>
         <div className="dialog-heading"><DialogTitle>{t.nvRecovery}</DialogTitle><DialogDescription>{t.nvRecoveryDesc}</DialogDescription></div>

@@ -7,10 +7,6 @@ case ${1:-} in
     target)
         disk=${2:?TF disk}; node=${disk##*/}
         echo "$node" | grep -Eq '^mmcblk[0-9]+$' || tf_fail 'invalid TF disk'
-        emmc=$(readlink -f /dev/block/by-name/misc)
-        emmc=${emmc##*/}; emmc=${emmc%p*}
-        echo "$emmc" | grep -Eq '^mmcblk[0-9]+$' || tf_fail 'cannot identify internal storage'
-        [ "$node" != "$emmc" ] || tf_fail 'refusing internal storage'
         [ "$(cat /sys/class/block/$node/device/type)" = SD ] || tf_fail 'not an SD card'
         [ -b "$disk" ] && [ "$(cat /sys/class/block/$node/ro)" = 0 ] || tf_fail 'missing/read-only TF disk'
         if [ -b "${disk}p1" ]; then

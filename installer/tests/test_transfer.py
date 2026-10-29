@@ -51,6 +51,18 @@ class Transfer(unittest.TestCase):
         self.assertEqual([data['bytes'] for data in events],[8<<20,self.source.stat().st_size])
         self.assertTrue(all(data['total']==self.source.stat().st_size and data['bytes_per_second']>0 for data in events))
 
+    def test_discovery_without_transaction_still_verifies_every_chunk(self):
+        push_chunks(self.call,self.shell,self.source,self.remote,None)
+        self.assertEqual(self.files[self.remote],self.source.read_bytes())
+        self.assertEqual(self.pushes,2)
+        self.assertFalse(self.events)
+
+    def test_discovery_without_transaction_rejects_corrupt_helper(self):
+        self.corrupt=True
+        with self.assertRaisesRegex(ValueError,'checksum'):
+            push_chunks(self.call,self.shell,self.source,self.remote,None)
+        self.assertNotIn(self.remote,self.files)
+
     def test_corrupt_chunk_stops_before_append_or_progress(self):
         self.corrupt=True
         with self.assertRaisesRegex(ValueError,'checksum'):self.transfer()

@@ -38,12 +38,12 @@ class ReadOnlyAdb:
         self.commands.append(script)
         if script=='cat /proc/sys/kernel/random/boot_id':return 'boot-fixture'
         if script=='settings get secure user_setup_complete':return '1'
-        if script.startswith('set -e; d='):
+        if 'echo NODE=$n' in script:
             return f'NODE=mmcblk1p16\nCID={CID}\nSTART=2048\nSIZE=33554432\nDISK_SIZE=134217728\nFREE=12582912\nSOURCE=/dev/block/mmcblk1p16\nROOT=mmcblk1p20\n'+('TF=/dev/block/mmcblk0p1\n' if self.card else '')
         if script=='cat /sys/class/block/mmcblk1p20/start /sys/class/block/mmcblk1p20/size':return '33556480 8388608'
         if script=='test -b /dev/block/mmcblk0p1; echo $?':return '0'
         if script=='cat /sys/class/block/mmcblk0p1/size':return '16777216'
-        if script=='cat /sys/class/block/mmcblk0/device/cid':return 'c'*32
+        if (script=='cat /sys/class/block/mmcblk0/device/cid' or 'e5_storage_identity "$d"' in script):return 'c'*32
         if script=='cat /sys/class/block/mmcblk0p1/start 2>/dev/null || echo 0':return '2048'
         raise AssertionError('Unexpected simulated ADB command: '+script)
 
@@ -132,7 +132,7 @@ class MethodRouting(unittest.TestCase):
         for cards in ('','mmcblk0 mmcblk2'):
             with self.subTest(cards=cards):
                 a=self.adapter();a.legacy=legacy;legacy.GUI=a
-                with patch.object(legacy,'package_profile',return_value={'profile':'e5','android_models':['E5']}), patch.object(legacy,'su',side_effect=lambda script:'mmcblk1' if 'PARTNAME=userdata' in script else cards):
+                with patch.object(legacy,'package_profile',return_value={'profile':'e5','android_models':['E5']}), patch.object(legacy,'su_checked',return_value='mmcblk1'), patch.object(legacy,'su',return_value=cards):
                     self.assertTrue(a.probe(SERIAL,'reinstall')['existing'])
                     with self.assertRaisesRegex(ValueError,'expected one SD card'):
                         a.probe(SERIAL,'tf')

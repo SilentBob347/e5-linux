@@ -57,12 +57,11 @@ for c in fsck.f2fs resize.f2fs; do
     command -v "$c" >/dev/null 2>&1 || { echo "$c is required: apk add f2fs-tools" >&2; exit 1; }
 done
 
-DATA=
-for u in /sys/class/block/mmcblk*p*/uevent; do
-    grep -qx PARTNAME=userdata "$u" 2>/dev/null && DATA=/dev/$(basename "$(dirname "$u")")
-done
-[ -n "$DATA" ] && [ -b "$DATA" ] || { echo 'no userdata partition' >&2; exit 1; }
-DISK=${DATA%p*}
+. /usr/lib/e5/storage.sh
+internal=$(e5_storage_disk)
+DATA=/dev/$(e5_storage_part userdata "$internal")
+[ -b "$DATA" ] || { echo 'no userdata partition' >&2; exit 1; }
+DISK=/dev/$internal
 [ -b "$DISK" ] || { echo "$DISK is not a block device" >&2; exit 1; }
 
 if [ -z "$SIZE" ]; then

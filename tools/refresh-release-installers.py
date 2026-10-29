@@ -27,6 +27,14 @@ def refresh(source,target,tools,revision):
     if target.exists():raise ValueError('Installer refresh target already exists')
     replacement={'files/part-write.sh':(TOP/'openwrt/bundle/part-write.sh').read_bytes().replace(b'\r\n',b'\n'),
                  'scripts/installer/part-two-stage.py':(TOP/'openwrt/bundle/part-two-stage.py').read_bytes().replace(b'\r\n',b'\n')}
+    for name, path in {
+        'OpenWrt-Installer.py':'openwrt/bundle/flash.py',
+        'scripts/installer/storage-api.py':'installer/backend/storage.py',
+        'scripts/installer/storage-lib.sh':'boot/storage.sh',
+        'scripts/installer/gpt-api.py':'installer/backend/gpt.py',
+        'files/storage.sh':'boot/storage.sh',
+    }.items():
+        replacement[name]=(TOP/path).read_bytes().replace(b'\r\n',b'\n')
     with zipfile.ZipFile(source) as original:
         replacement['files/install-lock-tools.tar']=runpy.run_path(str(TOP/'openwrt/prepare-ext4-tools.py'))['lock_addon'](original.read('files/ext4-tools.tar'),tools)
         sums={name:checksum for line in original.read('files/SHA256SUMS').decode().splitlines()
@@ -39,8 +47,8 @@ def refresh(source,target,tools,revision):
         replacement['files/INSTALLER-REVISION.json']=(json.dumps(record,indent=2)+'\n').encode()
         replacement['START-HERE.md']=original.read('START-HERE.md')+(
             '\n## Installer revision / 安装器修订\n\n'
-            '安装锁现在随进程自动释放，并自动回收旧版失效空锁目录；'
-            '真实正在运行的写入仍受保护。系统镜像和 boot 与基础发布包完全一致。\n').encode()
+            '随包安装脚本已刷新，包含分区续装、安装锁及 NV 保留／备份流程。'
+            '系统镜像和 boot 与基础发布包完全一致；详见 files/INSTALLER-REVISION.json。\n').encode()
         sums.update({n:hashlib.sha256(v).hexdigest() for n,v in replacement.items()})
         replacement['files/SHA256SUMS']=''.join(h+'  '+n+'\n' for n,h in sorted(sums.items())).encode()
         with zipfile.ZipFile(target,'x') as output:

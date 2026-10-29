@@ -18,7 +18,7 @@ SOURCE = (TOP / 'boot/init').read_text()
 def block():
     start = SOURCE.index('part_root() {')
     end = SOURCE.index('\n}\n', start) + 3
-    text = SOURCE[start:end]
+    text = (TOP/'boot/storage.sh').read_text()+'\n'+SOURCE[start:end]
     # relative paths so the harness runs the globs in a temp directory
     return text.replace('/sys/class/block', 'sys/class/block').replace('/sdtry', 'sdtry')
 
@@ -44,7 +44,7 @@ if part_root; then echo "FOUND $PARTROOT TRIAL=${PARTTRIAL:-none}"; else echo NO
 
 
 class PartRoot(unittest.TestCase):
-    def run_case(self, fixtures, contents=None, selection=None):
+    def run_case(self, fixtures, contents=None, selection=None, ufs=False):
         with tempfile.TemporaryDirectory(prefix='part-root-') as tmp:
             root = Path(tmp)
             for name, files in fixtures.items():
@@ -56,12 +56,16 @@ class PartRoot(unittest.TestCase):
                         target.chmod(0o755)
             for file, content in (contents or {}).items():
                 (root / 'fx' / 'mmcblk0p20' / file).write_text(content)
-            (root / 'sys/class/block/mmcblk0p20').mkdir(parents=True)
-            (root / 'sys/class/block/mmcblk0p20/uevent').write_text('PARTNAME=e5root\n')
-            (root / 'sys/class/block/mmcblk0p21').mkdir(parents=True)
-            (root / 'sys/class/block/mmcblk0p21/uevent').write_text('PARTNAME=userdata\n')
-            (root / 'sys/class/block/mmcblk1p1').mkdir(parents=True)
-            (root / 'sys/class/block/mmcblk1p1/uevent').write_text('PARTNAME=e5root\n')
+            for disk in ('mmcblk0','mmcblk1'):
+                (root/('sys/class/block/'+disk+'/device')).mkdir(parents=True)
+                (root/('sys/class/block/'+disk+'/device/type')).write_text('MMC' if disk=='mmcblk0' else 'SD')
+            for name,label in (('mmcblk0p3','misc'),('mmcblk0p20','e5root'),('mmcblk0p21','userdata'),('mmcblk1p1','e5root')):
+                disk, number = name.split('p')
+                actual = root/('sys/class/block/'+disk+'/'+name)
+                actual.mkdir()
+                (actual/'partition').write_text(number)
+                (actual/'uevent').write_text('PARTNAME='+label+'\n')
+                (root/('sys/class/block/'+name)).symlink_to(actual)
             harness = HARNESS
             if selection is not None:
                 start = SOURCE.index('part_autoboot() {')
@@ -73,6 +77,20 @@ e5_trial=$1 SDMETA=$2 want=$3
 if part_autoboot; then echo AUTO-PART; else echo NO-AUTO; fi
 [ -z "$mounted" ] || echo LEAKED-MOUNT
 '''
+            if ufs:
+                replacements = {'mmcblk0p':'sdb','mmcblk1p':'sdc','mmcblk0':'sdb','mmcblk1':'sdc'}
+                # Rename fixture directories/symlinks while preserving actual parent topology.
+                for old,new in replacements.items():
+                    harness = harness.replace(old,new)
+                for base in (root/'fx', root/'sys/class/block'):
+                    for path in sorted(base.rglob('*'),key=lambda p:len(p.parts),reverse=True):
+                        target_name=path.name
+                        for old,new in replacements.items(): target_name=target_name.replace(old,new)
+                        if path.is_symlink():
+                            target=str(path.readlink())
+                            for old,new in replacements.items(): target=target.replace(old,new)
+                            path.unlink();path.symlink_to(target)
+                        if target_name != path.name:path.rename(path.with_name(target_name))
             result = subprocess.run(['sh', '-c', harness, 'test', *(selection or [])], cwd=root,
                                     text=True, capture_output=True)
             assert result.returncode == 0, result.stderr
@@ -89,6 +107,13 @@ if part_autoboot; then echo AUTO-PART; else echo NO-AUTO; fi
         self.assertNotIn('LEAKED-MOUNT', out)
         self.assertEqual(activity.count('mount mmcblk0p20'), 1)
         self.assertEqual(activity.count('umount sdtry'), 1)
+
+    def test_ufs_partition_uses_its_actual_parent_without_mmc_suffix(self):
+        out,activity=self.run_case({'mmcblk0p20':['sbin/init','etc/e5/part-root'],
+                                  'mmcblk1p1':['sbin/init','etc/e5/part-root']},ufs=True)
+        self.assertIn('FOUND /dev/sdb20',out)
+        self.assertNotIn('mount sdc1',activity)
+        self.assertNotIn('LEAKED-MOUNT',out)
 
     def test_name_match_without_marker_is_skipped(self):
         out, activity = self.run_case({

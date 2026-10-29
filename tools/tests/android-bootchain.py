@@ -108,6 +108,30 @@ class Transaction(unittest.TestCase):
             self.assertEqual(self.run_script('sync', shell).returncode, 0)
             self.assertEqual(set(self.backups.iterdir()), directories)
 
+    def test_changxing60_adds_dt_containers_in_both_slot_directions(self):
+        for slot in 'ab':
+            with self.subTest(android=slot):
+                other = 'b' if slot == 'a' else 'a'
+                self.props.write_text(f'ro.boot.slot_suffix=_{slot}\n'
+                    'ro.boot.verifiedbootstate=green\nro.product.model=ZTE 7552N\n'
+                    'ro.product.device=P720S20\n')
+                self.misc(a=0x9f if slot == 'a' else 0x1e,
+                          b=0x9f if slot == 'b' else 0x1e)
+                for part in (*PARTS, 'dtbo', 'vendor_boot'):
+                    for suffix in 'ab':
+                        (self.by/f'{part}_{suffix}').write_bytes((part+suffix).encode().ljust(8192,b'!'))
+                before = self.snapshot()
+                result = self.run_script('check')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('dtbo vendor_boot', result.stdout)
+                self.assertEqual(self.snapshot(), before)
+                result = self.run_script('sync')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                after = self.snapshot()
+                for part in (*PARTS, 'dtbo', 'vendor_boot'):
+                    self.assertEqual(after[f'{part}_{slot}'], before[f'{part}_{slot}'])
+                    self.assertEqual(after[f'{part}_{other}'], before[f'{part}_{slot}'])
+
     def refused(self):
         before = self.snapshot()
         for mode in ('check', 'sync'):

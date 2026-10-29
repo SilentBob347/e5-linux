@@ -52,6 +52,9 @@ def assemble(package, source=HERE):
         '  exec ./tools/macos/backend/openwrt-backend --cli --package-root "$PWD" "$@"\n'
         'fi\n'
         'exec python3 ./OpenWrt-Installer.py "$@"\n', encoding='utf-8', newline='\n')
+    shutil.copy2(HERE.parents[1] / 'installer/backend/storage.py', internal / 'storage-api.py')
+    (internal / 'storage-lib.sh').write_bytes((HERE.parents[1] / 'boot/storage.sh').read_bytes().replace(b'\r\n', b'\n'))
+    shutil.copy2(HERE.parents[1] / 'installer/backend/gpt.py', internal / 'gpt-api.py')
     shutil.copy2(source / 'part-two-stage.py', internal / 'part-two-stage.py')
     shutil.copy2(source / 'boot-slots.py', internal / 'boot-slots.py')
     shutil.copy2(HERE.parents[1] / 'boot/boot-args.sh', internal / 'boot-args.sh')

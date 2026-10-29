@@ -187,7 +187,7 @@ GATEWAY_CONFIG = r'''
 import json, subprocess, urllib.request
 from pathlib import Path
 text = '\n'.join(p.read_text() for p in Path('/var/etc').glob('dnsmasq.conf.*'))
-assert '192.168.92.10,192.168.92.200,255.255.255.0,12h' in text
+assert '192.168.9.10,192.168.9.200,255.255.255.0,12h' in text
 for option in ('3', '6'):
     assert 'dhcp-option=tag:cx60probe,'+option+'\n' in text+'\n'
 assert 'dhcp-host=02:50:00:00:60:02,set:cx60probe,' in text
@@ -205,7 +205,7 @@ print('normal hotspot pool, PC-only gateway/DNS exclusion, IPv6 /64 configuratio
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--host', default='192.168.92.1')
+    p.add_argument('--host', default='192.168.9.1')
     p.add_argument('--out', required=True, type=Path)
     p.add_argument('--exercise', action='store_true')
     p.add_argument('--keep-running', action='store_true',

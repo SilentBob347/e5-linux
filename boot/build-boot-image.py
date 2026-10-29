@@ -30,6 +30,7 @@ import argparse
 import hashlib
 import json
 import os
+import runpy
 import stat
 import struct
 import subprocess
@@ -161,6 +162,7 @@ def bootloader_control(misc_head, android_slot=None):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--ufs-helper', type=Path)
     ap.add_argument('--stock-boot', required=True, type=Path,
                     help='stock boot image of the target slot (64 MiB, header v4, ramdisk_size 0)')
     ap.add_argument('--misc-head', required=True, type=Path, help='first 4 KiB of the misc partition')
@@ -234,6 +236,10 @@ def main():
     files['etc/install-part.sh'] = ((HERE / 'install-part.sh').read_bytes(), stat.S_IFREG | 0o644)
     files['etc/part-progress.sh'] = ((HERE / 'part-progress.sh').read_bytes(), stat.S_IFREG | 0o644)
     files['etc/boot-args.sh'] = ((HERE / 'boot-args.sh').read_bytes(), stat.S_IFREG | 0o644)
+    files['etc/storage.sh'] = ((HERE / 'storage.sh').read_bytes(), stat.S_IFREG | 0o644)
+    if a.ufs_helper:
+        runpy.run_path(str(HERE.parent / 'tools/build-ufs-id.py'))['check_static_arm64'](a.ufs_helper.read_bytes())
+        files['usr/libexec/e5-ufs-id'] = (a.ufs_helper.read_bytes(), stat.S_IFREG | 0o755)
     files['etc/part-prepare.sh'] = ((HERE / 'part-prepare.sh').read_bytes(), stat.S_IFREG | 0o644)
     files['etc/part-update.sh'] = ((HERE / 'part-update.sh').read_bytes(), stat.S_IFREG | 0o644)
     files['etc/nv-preserve.sh'] = ((HERE / 'nv-preserve.sh').read_bytes(), stat.S_IFREG | 0o644)
